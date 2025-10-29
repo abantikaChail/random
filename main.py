@@ -1,63 +1,72 @@
-# Friendly short responses when user appreciates or says thanks
-FRIENDLY_RESPONSES = [
-    "I'm glad I could help!",
-    "That sounds great!",
-    "Happy to hear that!",
-    "Anytime — I’m here to help!",
-    "Awesome! Let me know if you need anything else.",
-    "Glad I was helpful!",
-    "You're welcome!"
-]
+import re
+import random
 
-# Polite responses when user is unhappy or says the answer was wrong
-APOLOGY_RESPONSES = [
-    "I'm really sorry about that. I'm still improving and will try to do better next time.",
-    "Apologies if my answer wasn’t helpful — I’m learning and would love to know what went wrong.",
-    "My bad! I’ll do my best to improve. Could you share a bit more detail so I can help you better?",
-    "Sorry about that! I’m still in my early phase and will try to respond more accurately next time.",
-    "Thanks for pointing that out. I’ll work on improving — could you tell me what part wasn’t right?",
-]
+def detect_user_intent(user_query: str):
+    """
+    Detects if user input expresses gratitude or negative feedback.
+    Works with flexible, conversational phrases — purely rule-based.
+    """
+    query = user_query.lower().strip()
 
-
-
-def is_gratitude_message(user_input: str) -> bool:
-    gratitude_keywords = [
-        "thank", "thanks", "thank you", "thx",
-        "good job", "nice", "great", "awesome",
-        "helpful", "cool", "perfect", "amazing",
-        "appreciate", "well done", "good work"
+    # Base keywords for both sentiments
+    positive_keywords = [
+        "thank", "appreciate", "grateful", "good", "great", "awesome",
+        "amazing", "nice", "helpful", "useful", "perfect", "well done"
     ]
-    user_input_lower = user_input.lower()
-    return any(kw in user_input_lower for kw in gratitude_keywords)
-
-
-def is_negative_feedback(user_input: str) -> bool:
     negative_keywords = [
-        "not helpful", "wrong", "incorrect", "bad", "terrible",
-        "repeating", "same answer", "again", "you said that",
-        "useless", "makes no sense", "didn't help", "poor",
-        "doesn't work", "confusing", "irrelevant"
+        "wrong", "bad", "confusing", "useless", "irrelevant", "repeating",
+        "repeat", "not working", "doesn't work", "didn't help", "error", "issue", "problem"
     ]
-    user_input_lower = user_input.lower()
-    return any(kw in user_input_lower for kw in negative_keywords)
+
+    # Detect explicit positive or negative signals
+    positive_match = any(word in query for word in positive_keywords)
+    negative_match = any(word in query for word in negative_keywords)
+
+    # Smart negation handling (e.g., "not helpful", "wasn't great", "not good")
+    negation_pattern = r"\b(not|no|never|isn'?t|wasn'?t|doesn'?t|didn'?t)\b"
+    if re.search(negation_pattern, query):
+        for pos_word in positive_keywords:
+            if pos_word in query:
+                negative_match = True
+                positive_match = False
+                break
+
+    # Intent classification
+    if positive_match and not negative_match:
+        return "gratitude"
+    elif negative_match and not positive_match:
+        return "negative"
+    else:
+        return None
+
+
+# ----------------- Example usage in your chat flow ----------------- #
+intent = detect_user_intent(user_query)
+
+if intent == "gratitude":
+    assistant_msg = random.choice([
+        "I’m really glad I could help! 😊",
+        "That sounds great — happy to hear that!",
+        "Always a pleasure to assist!",
+        "Wonderful! I’m happy that was helpful.",
+        "Awesome! Glad it worked out for you."
+    ])
+
+elif intent == "negative":
+    assistant_msg = random.choice([
+        "I’m sorry that didn’t help much. Could you tell me what went wrong?",
+        "Apologies — I’m still improving and will try to do better next time.",
+        "I appreciate your feedback. Could you share more details so I can refine my responses?",
+        "Sorry about that! I’m still learning and might miss things sometimes, but I’ll do my best to improve."
+    ])
 
 
 
-    # --- Handle special user messages (gratitude or negative feedback) ---
-    if is_gratitude_message(user_query):
-        assistant_msg = random.choice(FRIENDLY_RESPONSES)
-        with st.chat_message("assistant"):
-            st.markdown(assistant_msg)
-        st.session_state.chat_history.append({"role": "assistant", "content": assistant_msg})
-        st.stop()
-
-    if is_negative_feedback(user_query):
-        assistant_msg = random.choice(APOLOGY_RESPONSES)
-        with st.chat_message("assistant"):
-            st.markdown(assistant_msg)
-        st.session_state.chat_history.append({"role": "assistant", "content": assistant_msg})
-        st.stop()
-
-
+intent = detect_user_intent(user_query)
+if intent:
+    # handle accordingly
+    # and skip the search logic below
+    st.chat_message("assistant").markdown(assistant_msg)
+    st.stop()
 
 
