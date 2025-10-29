@@ -1,47 +1,62 @@
-# Separate tone for "no results" situations
-OPENING_PHRASES_NORESULTS = [
-    "Hmm, looks like I couldn’t find anything on that.",
-    "That’s interesting — I couldn’t locate any matching documents.",
-    "Seems like there’s nothing relevant to that just yet.",
-    "I searched everywhere, but couldn’t find a match for that query."
+# Friendly short responses when user appreciates or says thanks
+FRIENDLY_RESPONSES = [
+    "I'm glad I could help!",
+    "That sounds great!",
+    "Happy to hear that!",
+    "Anytime — I’m here to help!",
+    "Awesome! Let me know if you need anything else.",
+    "Glad I was helpful!",
+    "You're welcome!"
 ]
 
-CLOSING_PHRASES_NORESULTS = [
-    "Maybe try rephrasing your question or adding more details?",
-    "You could upload more relevant documents and try again.",
-    "Let’s refine the question and see if we can find something next time.",
-    "Try using simpler or more specific search terms."
+# Polite responses when user is unhappy or says the answer was wrong
+APOLOGY_RESPONSES = [
+    "I'm really sorry about that. I'm still improving and will try to do better next time.",
+    "Apologies if my answer wasn’t helpful — I’m learning and would love to know what went wrong.",
+    "My bad! I’ll do my best to improve. Could you share a bit more detail so I can help you better?",
+    "Sorry about that! I’m still in my early phase and will try to respond more accurately next time.",
+    "Thanks for pointing that out. I’ll work on improving — could you tell me what part wasn’t right?",
 ]
 
 
-def style_response(core_response: str, no_results: bool = False) -> str:
-    """Add conversational tone. Use special tone if no results found."""
-    core = core_response.strip()
-    if not core:
-        return core
 
-    if CONVERSATIONAL_MODE:
-        if no_results:
-            opening = random.choice(OPENING_PHRASES_NORESULTS)
-            closing = random.choice(CLOSING_PHRASES_NORESULTS)
-        else:
-            opening = random.choice(OPENING_PHRASES)
-            closing = random.choice(CLOSING_PHRASES)
-        return f"{opening} {core} {closing}"
-    else:
-        return core
+def is_gratitude_message(user_input: str) -> bool:
+    gratitude_keywords = [
+        "thank", "thanks", "thank you", "thx",
+        "good job", "nice", "great", "awesome",
+        "helpful", "cool", "perfect", "amazing",
+        "appreciate", "well done", "good work"
+    ]
+    user_input_lower = user_input.lower()
+    return any(kw in user_input_lower for kw in gratitude_keywords)
 
 
+def is_negative_feedback(user_input: str) -> bool:
+    negative_keywords = [
+        "not helpful", "wrong", "incorrect", "bad", "terrible",
+        "repeating", "same answer", "again", "you said that",
+        "useless", "makes no sense", "didn't help", "poor",
+        "doesn't work", "confusing", "irrelevant"
+    ]
+    user_input_lower = user_input.lower()
+    return any(kw in user_input_lower for kw in negative_keywords)
 
-# After assistant_msg is assigned and before displaying it:
-no_results_mode = "No documents found" in assistant_msg
-core_response = shorten_response(str(assistant_msg), MAX_SENTENCES)
-final_response = style_response(core_response, no_results=no_results_mode)
 
-with st.chat_message("assistant"):
-    st.markdown(final_response)
-st.session_state.chat_history.append({"role": "assistant", "content": final_response})
 
+    # --- Handle special user messages (gratitude or negative feedback) ---
+    if is_gratitude_message(user_query):
+        assistant_msg = random.choice(FRIENDLY_RESPONSES)
+        with st.chat_message("assistant"):
+            st.markdown(assistant_msg)
+        st.session_state.chat_history.append({"role": "assistant", "content": assistant_msg})
+        st.stop()
+
+    if is_negative_feedback(user_query):
+        assistant_msg = random.choice(APOLOGY_RESPONSES)
+        with st.chat_message("assistant"):
+            st.markdown(assistant_msg)
+        st.session_state.chat_history.append({"role": "assistant", "content": assistant_msg})
+        st.stop()
 
 
 
