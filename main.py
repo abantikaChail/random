@@ -75,9 +75,19 @@ st.write(response)
 # Example: find the current lines that send the reply and replace with below
 # (adapt variable names to match your code: if it uses 'answer' or 'best_answer' use that name)
 
-raw_response = best_response  # or whatever variable your code sets
-core_response = shorten_response(raw_response, max_sentences=MAX_SENTENCES)
+# --- Ensure we only process plain text answers ---
+if isinstance(assistant_msg, (list, tuple)):
+    # If it's a list or tuple, join all text-like parts
+    text_parts = [str(x) for x in assistant_msg if isinstance(x, (str, int, float))]
+    assistant_msg = " ".join(text_parts)
+elif isinstance(assistant_msg, dict):
+    # If it's a dict, try to extract the 'answer' or 'text' field
+    assistant_msg = assistant_msg.get("answer") or assistant_msg.get("text") or str(assistant_msg)
+
+# Now safely shorten and style the message
+core_response = shorten_response(str(assistant_msg), MAX_SENTENCES)
 final_response = style_response(core_response)
+
 
 # send to user (example; adapt to your code)
 # if your code uses `print()`
