@@ -1,11 +1,31 @@
-import os
 from pathlib import Path
+import docx
+import fitz  # PyMuPDF
 
-def load_documents(folder_path):
+def load_txt(file):
+    return file.read().decode("utf-8")
+
+def load_pdf(file):
+    text = ""
+    with fitz.open(stream=file.read(), filetype="pdf") as doc:
+        for page in doc:
+            text += page.get_text()
+    return text
+
+def load_docx(file):
+    doc = docx.Document(file)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def load_documents_from_files(uploaded_files):
     documents = []
-    for file in Path(folder_path).glob("*.txt"):
-        with open(file, 'r', encoding='utf-8') as f:
-            documents.append(f.read())
+    for file in uploaded_files:
+        if file.name.endswith(".txt"):
+            documents.append(load_txt(file))
+        elif file.name.endswith(".pdf"):
+            documents.append(load_pdf(file))
+        elif file.name.endswith(".docx"):
+            documents.append(load_docx(file))
+
 
 
 
@@ -37,19 +57,41 @@ class QABot:
 
 
 import streamlit as st
-from backend.document_loader import load_documents
+from backend.document_loader import load_documents_from_files
 from backend.qa_engine import QABot
 
-st.title("Local SOP Chatbot")
+st.set_page_config(page_title="Local SOP Chatbot", layout="wide")
+st.title("📘 Local SOP Chatbot")
 
-uploaded_files = st.file_uploader("Upload SOPs", type=["txt"], accept_multiple_files=True)
-question = st.text_input("Ask a question")
+# Initialize session state for chat history
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-if uploaded_files:
-    docs = [file.read().decode("utf-8") for file in uploaded_files]
-    bot = QABot(docs)
+uploaded_files = st.file_uploader(
+    "Upload SOPs or documents (.txt, .pdf, .docx)", 
+    type=["txt", "pdf", "docx"], 
+    accept_multiple_files=True
+)
 
-    if question:
+question = st.text_input("Ask a situation-based question")
+
+if uploaded_files and question:
+    with st.spinner("Processing documents..."):
+        docs = load_documents_from_files(uploaded_files)
+        bot = QABot(docs)
         answer = bot.answer_question(question)
-        st.write("### Answer")
+
+        # Save to chat history
+        st.session_state.chat_history.append({"question": question, "answer": answer})
+
+        st.success("Answer generated:")
         st.write(answer)
+
+# Display chat history
+if st.session_state.chat_history:
+    st.markdown("### 💬 Chat History")
+    for i, chat in enumerate(reversed(st.session_state.chat_history), 1):
+        st.markdown(f"**Q{i}:** {chat['question']}")
+        st.markdown(f"**A{i}:** {chat['answer']}")
+        st.markdown("---")
+
