@@ -1,72 +1,55 @@
-import re
-import random
+import os
+from pathlib import Path
 
-def detect_user_intent(user_query: str):
-    """
-    Detects if user input expresses gratitude or negative feedback.
-    Works with flexible, conversational phrases — purely rule-based.
-    """
-    query = user_query.lower().strip()
-
-    # Base keywords for both sentiments
-    positive_keywords = [
-        "thank", "appreciate", "grateful", "good", "great", "awesome",
-        "amazing", "nice", "helpful", "useful", "perfect", "well done"
-    ]
-    negative_keywords = [
-        "wrong", "bad", "confusing", "useless", "irrelevant", "repeating",
-        "repeat", "not working", "doesn't work", "didn't help", "error", "issue", "problem"
-    ]
-
-    # Detect explicit positive or negative signals
-    positive_match = any(word in query for word in positive_keywords)
-    negative_match = any(word in query for word in negative_keywords)
-
-    # Smart negation handling (e.g., "not helpful", "wasn't great", "not good")
-    negation_pattern = r"\b(not|no|never|isn'?t|wasn'?t|doesn'?t|didn'?t)\b"
-    if re.search(negation_pattern, query):
-        for pos_word in positive_keywords:
-            if pos_word in query:
-                negative_match = True
-                positive_match = False
-                break
-
-    # Intent classification
-    if positive_match and not negative_match:
-        return "gratitude"
-    elif negative_match and not positive_match:
-        return "negative"
-    else:
-        return None
-
-
-# ----------------- Example usage in your chat flow ----------------- #
-intent = detect_user_intent(user_query)
-
-if intent == "gratitude":
-    assistant_msg = random.choice([
-        "I’m really glad I could help! 😊",
-        "That sounds great — happy to hear that!",
-        "Always a pleasure to assist!",
-        "Wonderful! I’m happy that was helpful.",
-        "Awesome! Glad it worked out for you."
-    ])
-
-elif intent == "negative":
-    assistant_msg = random.choice([
-        "I’m sorry that didn’t help much. Could you tell me what went wrong?",
-        "Apologies — I’m still improving and will try to do better next time.",
-        "I appreciate your feedback. Could you share more details so I can refine my responses?",
-        "Sorry about that! I’m still learning and might miss things sometimes, but I’ll do my best to improve."
-    ])
+def load_documents(folder_path):
+    documents = []
+    for file in Path(folder_path).glob("*.txt"):
+        with open(file, 'r', encoding='utf-8') as f:
+            documents.append(f.read())
 
 
 
-intent = detect_user_intent(user_query)
-if intent:
-    # handle accordingly
-    # and skip the search logic below
-    st.chat_message("assistant").markdown(assistant_msg)
-    st.stop()
 
 
+
+
+
+
+from sentence_transformers import SentenceTransformer, util
+
+class QABot:
+    def __init__(self, documents):
+        self.model = SentenceTransformer('all-mpnet-base-v2')
+        self.docs = documents
+        self.doc_embeddings = self.model.encode(documents, convert_to_tensor=True)
+
+    def answer_question(self, question):
+        question_embedding = self.model.encode(question, convert_to_tensor=True)
+        scores = util.pytorch_cos_sim(question_embedding, self.doc_embeddings)[0]
+        top_k = scores.topk(3)
+        answers = [self.docs[idx] for idx in top_k[1]]
+        return "\n---\n".join(answers)
+
+
+
+
+
+
+
+import streamlit as st
+from backend.document_loader import load_documents
+from backend.qa_engine import QABot
+
+st.title("Local SOP Chatbot")
+
+uploaded_files = st.file_uploader("Upload SOPs", type=["txt"], accept_multiple_files=True)
+question = st.text_input("Ask a question")
+
+if uploaded_files:
+    docs = [file.read().decode("utf-8") for file in uploaded_files]
+    bot = QABot(docs)
+
+    if question:
+        answer = bot.answer_question(question)
+        st.write("### Answer")
+        st.write(answer)
