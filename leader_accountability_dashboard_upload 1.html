@@ -1,0 +1,487 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leader Accountability Dashboard — Upload Enabled</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0f1a; --bg-alt: #0f1424; --card: rgba(255,255,255,0.06);
+      --glass: rgba(255,255,255,0.08); --text: #e6e9f0; --muted: #9aa3b2;
+      --accent: #7c5cff; --accent-2: #00d4ff; --success: #35d07f;
+      --warning: #ffb648; --danger: #ff5c7a; --ring: #28304a;
+    }
+    .light {
+      --bg: #f6f7fb; --bg-alt: #ffffff; --card: rgba(0,0,0,0.04);
+      --glass: rgba(0,0,0,0.06); --text: #111827; --muted: #6b7280;
+      --accent: #6c5ce7; --accent-2: #0ea5e9; --success: #14b8a6; --warning: #f59e0b; --danger: #ef4444; --ring: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background: linear-gradient(140deg, var(--bg), var(--bg-alt)); color: var(--text); font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Arial; }
+    header { position: sticky; top:0; z-index:50; backdrop-filter: blur(10px); background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0)); border-bottom:1px solid var(--card); }
+    .nav { display:flex; align-items:center; justify-content:space-between; padding:14px 24px; }
+    .brand { display:flex; gap:12px; align-items:center; }
+    .logo { width:36px; height:36px; border-radius:10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow:0 6px 20px rgba(124,92,255,0.4); }
+    .title { font-family:'Orbitron',sans-serif; letter-spacing:0.8px; font-weight:700; }
+    .actions { display:flex; gap:10px; align-items:center; }
+    .btn { padding:10px 14px; border-radius:10px; border:1px solid var(--card); background: var(--glass); color:var(--text); cursor:pointer; }
+    .btn:hover { filter:brightness(1.1); }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; padding:24px; }
+    .card { background: var(--glass); border:1px solid var(--card); border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+    .col-3 { grid-column: span 3; } .col-4 { grid-column: span 4; } .col-6 { grid-column: span 6; } .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
+    .kpi { display:flex; align-items:center; gap:16px; }
+    .ring { width:90px; height:90px; border-radius:50%; display:grid; place-items:center; background: conic-gradient(var(--accent) 0deg, var(--accent) var(--deg), var(--ring) var(--deg)); position: relative; }
+    .ring::before { content:''; position:absolute; inset:8px; background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2), transparent); border-radius:50%; }
+    .ring .inner { width:68px; height:68px; border-radius:50%; background: var(--bg-alt); display:grid; place-items:center; font-weight:700; }
+    .kpi .meta { display:flex; flex-direction:column; gap:6px; } .kpi .meta .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.8px; } .kpi .meta .value { font-size:22px; font-weight:800; }
+    .leaderboard { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+    .leader-card { position:relative; padding:16px; border-radius:16px; background: linear-gradient(180deg, var(--glass), rgba(255,255,255,0.02)); border: 1px solid var(--card); }
+    .leader-header { display:flex; align-items:center; justify-content:space-between; }
+    .avatar { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; font-weight:700; background: linear-gradient(135deg, #1f2937, #374151); color:#fff; }
+    .bar { height:10px; background: var(--ring); border-radius:999px; overflow:hidden; margin-top:10px; } .bar>span { display:block; height:100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; } .chip { font-size:12px; padding:6px 8px; border-radius:999px; background: var(--card); border:1px solid var(--glass); }
+    .section-title { font-weight:800; letter-spacing:0.5px; margin-bottom:8px; } .muted { color:var(--muted); }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; } .table th,.table td { padding:10px; border-bottom:1px solid var(--card); text-align:left; }
+    .heat { border-radius:8px; padding:4px 8px; display:inline-block; color:#fff; }
+    .uploader { display:flex; gap:12px; align-items:center; }
+    .drop { border:1px dashed var(--accent-2); border-radius:14px; padding:12px 14px; color:var(--muted); }
+    footer { padding:24px; color:var(--muted); font-size:12px; }
+    @media (max-width:960px){ .col-6{grid-column:span 12;} .col-4{grid-column:span 12;} .col-3{grid-column:span 6;} }
+
+/* Grid for the leaderboard cards */
+.leaderboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+/* Responsiveness */
+@media (max-width: 1024px) {
+  .leaderboard { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .leaderboard { grid-template-columns: 1fr; }
+}
+
+/* Collapsed state: show only top 3 cards */
+.leaderboard.lb-collapsed .leader-card:nth-child(n+4) {
+  display: none;
+}
+
+/* Toggle button styling (outside the grid so it won't take a grid cell) */
+.lb-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--surface, #fff);
+  color: var(--text, #111827);
+  margin-top: 10px;
+}
+
+.lb-toggle-btn:hover { background: var(--hover, #f3f4f6); }
+
+.lb-chevron {
+  display: inline-block;
+  transition: transform 180ms ease;
+}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <div class="title">Leader Accountability Dashboard</div>
+          <div class="muted" style="font-size:12px">Upload Excel to refresh data • Dark/Light theme • Leader filter</div>
+        </div>
+      </div>
+      <div class="actions">
+        <select id="leaderFilter" class="btn"></select>
+        <button id="themeToggle" class="btn">Toggle Theme</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- Upload Panel -->
+    <section class="card col-12">
+      <div class="section-title">Update Data</div>
+      <div class="uploader">
+        <label class="btn" for="fileInput">Upload .xlsx</label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" />
+        <div class="btn" id="saveLocal">Save to this browser</div>
+        <div class="btn" id="clearLocal">Clear saved data</div>
+        <label style="display:flex; align-items:center; gap:8px;" class="muted">
+          <input type="checkbox" id="appendMode" /> Append mode
+        </label>
+      </div>
+      <div id="dropZone" class="drop" style="margin-top:10px">Drag & drop Excel here or click “Upload .xlsx”</div>
+      <div class="muted" style="margin-top:6px">Template required columns: Task, Assigned to, Assigned date, Days since task assignment, Status (R/A/G). Optional: Medium, Description.</div>
+    </section>
+
+    <!-- KPI Cards -->
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringCompletion"><div class="inner" id="ringCompletionInner">0%</div></div>
+        <div class="meta"><div class="label">Overall Completion</div><div class="value" id="overallCompletion">0%</div><div class="muted" id="topLeaderText">Top: -</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringTasks"><div class="inner" id="ringTasksInner">0</div></div>
+        <div class="meta"><div class="label">Total Tasks</div><div class="value" id="totalTasks">0</div><div class="muted" id="pendingTasks">Pending: 0</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringOverdue"><div class="inner" id="ringOverdueInner">0</div></div>
+        <div class="meta"><div class="label">Overdue (R)</div><div class="value" id="overdueCount">0</div><div class="muted" id="amberCount">Amber (A): 0</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringAging"><div class="inner" id="ringAgingInner">0d</div></div>
+        <div class="meta"><div class="label">Avg Aging (Pending)</div><div class="value" id="avgAging">0 days</div><div class="muted" id="nudge">Nudge: Clear the oldest task</div></div>
+      </div>
+    </section>
+
+    <!-- Leaderboard -->
+    <section class="card col-8">
+      <div class="section-title">Leaderboard</div>
+      <div class="muted">Ranked by completion % (G)</div>
+      <div id="leaderboard" class="leaderboard"></div>
+    </section>
+
+    <!-- Status Distribution -->
+    <section class="card col-4">
+      <div class="section-title">Status Distribution</div>
+      <canvas id="statusChart" height="220"></canvas>
+      <div class="chips">
+        <span class="chip" id="chipG">Green (G): 0</span>
+        <span class="chip" id="chipA">Amber (A): 0</span>
+        <span class="chip" id="chipR">Red (R): 0</span>
+      </div>
+    </section>
+
+    <!-- Aging Buckets -->
+    <section class="card col-6">
+      <div class="section-title">Aging Buckets (Pending)</div>
+      <canvas id="agingChart" height="240"></canvas>
+    </section>
+
+    <!-- Heatmap -->
+    <section class="card col-6">
+      <div class="section-title">Pending Heatmap</div>
+      <table class="table" id="heatTable">
+        <thead><tr><th>Leader</th><th>Pending</th><th>Amber (A)</th><th>Overdue (R)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Focus: Oldest pending per leader -->
+    <section class="card col-12">
+      <div class="section-title">Focus Board</div>
+      <div class="muted">One nudge per leader: oldest pending task to clear next</div>
+      <table class="table" id="focusTable">
+        <thead><tr><th>Leader</th><th>Task</th><th>Days Since</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <div>Assumptions: Status codes R/A/G map to Overdue / In-progress / Completed respectively. Completion rate = G / Total. Data persists in browser if you click “Save to this browser”.</div>
+  </footer>
+
+  <script>
+    // ===== Default embedded data from initial Excel (can be replaced by upload) =====
+    const EMBEDDED_DATA = [];
+
+    // ===== Utilities =====
+    function groupBy(arr, key) {
+      return arr.reduce((acc, item) => { const k = (item[key] || '').trim(); acc[k] = acc[k] || []; acc[k].push(item); return acc; }, {});
+    }
+    function normStatus(s) {
+      s = (s || '').toString().trim().toUpperCase();
+      if (!s) return 'A';
+      const ch = s[0];
+      if (ch === 'G') return 'G';
+      if (ch === 'A') return 'A';
+      if (ch === 'R') return 'R';
+      return 'A';
+    }
+    function toInt(n) { n = parseInt(n, 10); return isNaN(n) ? 0 : n; }
+    function setRing(id, percent, label) {
+      const deg = Math.min(360, Math.round((percent/100)*360));
+      const ring = document.getElementById(id);
+      ring.style.setProperty('--deg', deg + 'deg');
+      const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
+    }
+
+    // ===== Parsing Excel (SheetJS) =====
+    function normalizeColumns(obj) {
+      const out = {};
+      const map = {
+        'sno': 'SNo','task': 'Task','assignedto': 'AssignedTo','medium': 'Medium','assigneddate': 'AssignedDate','dayssincetaskassignment': 'DaysSince','dayssince': 'DaysSince','status': 'Status','description': 'Description'
+      };
+      Object.keys(obj).forEach(k => {
+        const nk = k.toLowerCase().replace(/[^a-z0-9]/g,'');
+        const key = map[nk] || k; out[key] = obj[k];
+      });
+      // Coerce types / defaults
+      out.Task = (out.Task || '').toString().trim();
+      out.AssignedTo = (out.AssignedTo || '').toString().trim();
+      out.Medium = (out.Medium || '').toString().trim();
+      out.Status = normStatus(out.Status);
+      out.Description = (out.Description || '').toString().trim();
+      out.DaysSince = toInt(out.DaysSince);
+      // Date normalizing: keep as string; parsing not required
+      out.AssignedDate = (out.AssignedDate || '').toString().trim();
+      return out;
+    }
+
+    function sheetToRecords(workbook) {
+      const firstSheetName = workbook.SheetNames[0];
+      const ws = workbook.Sheets[firstSheetName];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+      const records = raw.map(normalizeColumns).filter(r => r.Task || r.AssignedTo);
+      return records;
+    }
+
+    // ===== Metrics =====
+    function computeMetrics(records) {
+      const tasks = records.map(r => ({
+        Task: r.Task || '',
+        Leader: (r.AssignedTo || '').trim() || 'Unassigned',
+        Medium: r.Medium || '',
+        AssignedDate: r.AssignedDate || '',
+        DaysSince: toInt(r.DaysSince),
+        Status: normStatus(r.Status || '')
+      }));
+      const total = tasks.length;
+      const g = tasks.filter(t => t.Status === 'G').length;
+      const a = tasks.filter(t => t.Status === 'A').length;
+      const r = tasks.filter(t => t.Status === 'R').length;
+      const pending = total - g;
+      const avgAgingPending = (() => { const arr = tasks.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
+      const byLeader = groupBy(tasks, 'Leader');
+      const leaders = Object.keys(byLeader).filter(l => l && l !== 'Unassigned');
+      const leaderStats = leaders.map(l => {
+        const list = byLeader[l];
+        const tot = list.length;
+        const gCount = list.filter(t => t.Status === 'G').length;
+        const aCount = list.filter(t => t.Status === 'A').length;
+        const rCount = list.filter(t => t.Status === 'R').length;
+        const pendingCount = tot - gCount;
+        const avgAge = (() => { const arr = list.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
+        const oldest = (() => { const pend = list.filter(t => t.Status !== 'G'); if (!pend.length) return null; return pend.sort((x,y) => y.DaysSince - x.DaysSince)[0]; })();
+        const completion = tot ? Math.round((gCount / tot) * 100) : 0;
+        return { leader: l, total: tot, g: gCount, a: aCount, r: rCount, pending: pendingCount, avgAge, oldest, completion };
+      });
+      leaderStats.sort((x,y) => (y.completion - x.completion) || (x.r - y.r) || (x.pending - y.pending));
+      const buckets = { '0-7':0, '8-14':0, '15-30':0, '31+':0 };
+      tasks.filter(t => t.Status !== 'G').forEach(t => { const d = t.DaysSince || 0; if (d <= 7) buckets['0-7']++; else if (d <= 14) buckets['8-14']++; else if (d <= 30) buckets['15-30']++; else buckets['31+']++; });
+      return { tasks, total, g, a, r, pending, avgAgingPending, leaderStats, buckets };
+    }
+
+    // ===== Rendering =====
+    let statusChart = null; let agingChart = null;
+    function renderAll(records) {
+      const METRICS = computeMetrics(records);
+      // Leader Filter
+      const filterEl = document.getElementById('leaderFilter');
+      filterEl.innerHTML = '';
+      ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => { const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o); });
+      filterEl.onchange = (e) => { const val = e.target.value; const list = val==='All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val); renderLeaderboard(list); };
+      // KPI
+      const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
+      document.getElementById('overallCompletion').textContent = overallCompletion + '%'; setRing('ringCompletion', overallCompletion, overallCompletion + '%');
+      document.getElementById('totalTasks').textContent = METRICS.total; document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS.pending; setRing('ringTasks', METRICS.total?100:0, METRICS.total);
+      document.getElementById('overdueCount').textContent = METRICS.r; document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS.a; setRing('ringOverdue', METRICS.total?Math.round((METRICS.r/METRICS.total)*100):0, METRICS.r);
+      document.getElementById('avgAging').textContent = METRICS.avgAgingPending + ' days'; setRing('ringAging', Math.min(100, METRICS.avgAgingPending), METRICS.avgAgingPending + 'd');
+      document.getElementById('chipG').textContent = 'Green (G): ' + METRICS.g; document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS.a; document.getElementById('chipR').textContent = 'Red (R): ' + METRICS.r;
+      document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
+      document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
+      // Leaderboard
+      renderLeaderboard(METRICS.leaderStats);
+      // Heatmap & Focus
+      renderHeat(METRICS.leaderStats);
+      renderFocus(METRICS.leaderStats);
+      // Charts
+      const statusCtx = document.getElementById('statusChart').getContext('2d');
+      if (statusChart) statusChart.destroy();
+      statusChart = new Chart(statusCtx, {
+        type: 'doughnut', data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS.g, METRICS.a, METRICS.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] }, options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
+      });
+      const agingCtx = document.getElementById('agingChart').getContext('2d');
+      if (agingChart) agingChart.destroy();
+      agingChart = new Chart(agingCtx, {
+        type: 'bar', data: { labels: Object.keys(METRICS.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
+      });
+    }
+
+    function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
+
+    function medalSVG(rank) {
+      const colors = ['#ffd700','#c0c0c0','#cd7f32']; const c = colors[rank-1] || getVar('--accent');
+      return `<svg class="medal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="${c}" opacity="0.9"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#111">${rank}</text></svg>`;
+    }
+
+
+  function renderLeaderboard(list) {
+    const lb = document.getElementById('leaderboard');
+    lb.innerHTML = '';
+
+    // Ensure the grid starts collapsed (top 3 visible)
+    lb.classList.add('lb-collapsed');
+
+    // Build all cards as direct children of the grid
+    list.forEach((row, idx) => {
+      const card = document.createElement('div');
+      card.className = 'leader-card';
+
+      const initials = row.leader.split(/\s+/).map(x => x[0]).join('').slice(0,2).toUpperCase();
+      const badge = idx < 3 ? medalSVG(idx + 1) : '';
+      const chip1 = row.completion >= 90 ? '🔥 On Fire' : (row.completion >= 75 ? '⚡ Sprint Ready' : '🎯 Push to 75%');
+      const chip2 = row.r > 0 ? `${row.r} overdue` : 'No overdue';
+      const chip3 = row.avgAge ? `Avg age ${row.avgAge}d` : 'Fresh';
+
+      card.innerHTML = `
+        <div class="leader-header">
+          <div style="display:flex; gap:12px; align-items:center;">
+            <div class="avatar">${initials}</div>
+            <div>
+              <div style="font-weight:700">${row.leader}</div>
+              <div class="muted">${row.g}/${row.total} completed</div>
+            </div>
+          </div>
+          ${badge}
+        </div>
+        <div class="bar"><span style="width:${row.completion}%;"></span></div>
+        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+          <div class="muted">Completion</div>
+          <div style="font-weight:700">${row.completion}%</div>
+        </div>
+        <div class="chips">
+          <span class="chip">${chip1}</span>
+          <span class="chip">${chip2}</span>
+          <span class="chip">${chip3}</span>
+        </div>
+      `;
+      lb.appendChild(card);
+    });
+
+    // Create or reuse a toggle button placed AFTER the grid (so it won't be a grid item)
+    let toggleBtn = document.getElementById('lbToggle');
+    if (!toggleBtn) {
+      toggleBtn = document.createElement('button');
+      toggleBtn.id = 'lbToggle';
+      toggleBtn.className = 'lb-toggle-btn';
+      toggleBtn.type = 'button';
+      toggleBtn.setAttribute('aria-controls', 'leaderboard');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      // place the button after the grid within the same section
+      lb.parentNode.appendChild(toggleBtn);
+    }
+
+    // Hide the button if <=3 items
+    if (list.length <= 3) {
+      toggleBtn.style.display = 'none';
+      return;
+    } else {
+      toggleBtn.style.display = 'inline-flex';
+    }
+
+    // Update button text based on state
+    const setBtnText = () => {
+      const collapsed = lb.classList.contains('lb-collapsed');
+      toggleBtn.innerHTML = `<span class="lb-chevron">▼</span> ${collapsed ? 'Show more (' + (list.length - 3) + ')' : 'Show less'}`;
+      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+      // Flip chevron
+      const chevron = toggleBtn.querySelector('.lb-chevron');
+      chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+    };
+
+    // Initial label
+    setBtnText();
+
+    // Toggle behavior: simply add/remove the class on the grid
+    toggleBtn.onclick = () => {
+      lb.classList.toggle('lb-collapsed');
+      setBtnText();
+    };
+  }
+
+    function renderHeat(stats){
+      const body = document.querySelector('#heatTable tbody'); body.innerHTML = '';
+      function heatColor(n){ const intensity = Math.min(1, n/5); const r = Math.round(255*intensity); const g = Math.round(124+(1-intensity)*60); const b = Math.round(255*(1-intensity)); return `rgb(${r},${g},${b})`; }
+      stats.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${row.leader}</td>
+                        <td><span class="heat" style="background:${heatColor(row.pending)}">${row.pending}</span></td>
+                        <td><span class="heat" style="background:${heatColor(row.a)}">${row.a}</span></td>
+                        <td><span class="heat" style="background:${heatColor(row.r)}">${row.r}</span></td>`;
+        body.appendChild(tr);
+      });
+    }
+    function renderFocus(stats){
+      const body = document.querySelector('#focusTable tbody'); body.innerHTML = '';
+      stats.forEach(row => { const o = row.oldest; body.innerHTML += `<tr><td>${row.leader}</td><td>${o?o.Task:'All clear'}</td><td>${o?o.DaysSince:'-'}</td><td>${o?o.Status:'-'}</td></tr>`; });
+    }
+
+    // ===== Theme toggle =====
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      document.body.classList.toggle('light');
+      if (statusChart) { statusChart.options.plugins.legend.labels.color = getVar('--text'); statusChart.update(); }
+      if (agingChart) { agingChart.update(); }
+    });
+
+    // ===== Upload handling =====
+    const fileInput = document.getElementById('fileInput');
+    const dropZone = document.getElementById('dropZone');
+    const appendMode = document.getElementById('appendMode');
+
+    fileInput.addEventListener('change', async (e) => { if (!e.target.files.length) return; await handleFile(e.target.files[0]); fileInput.value=''; });
+    ;['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = 'rgba(0,212,255,0.08)'; }));
+    ;['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = ''; }));
+    dropZone.addEventListener('drop', async (e) => { const f = e.dataTransfer.files[0]; if (f) await handleFile(f); });
+
+    async function handleFile(file){
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type:'array' });
+      const recs = sheetToRecords(wb);
+      let merged = recs;
+      if (appendMode.checked){ merged = [...currentRecords, ...recs]; }
+      currentRecords = merged;
+      renderAll(currentRecords);
+    }
+
+    // ===== Local persistence =====
+    const saveBtn = document.getElementById('saveLocal');
+    const clearBtn = document.getElementById('clearLocal');
+    saveBtn.addEventListener('click', () => { try { localStorage.setItem('LAD_RECORDS', JSON.stringify(currentRecords)); saveBtn.textContent = 'Saved ✓'; setTimeout(()=>saveBtn.textContent='Save to this browser', 1500); } catch(e){ alert('Save failed: ' + e.message); } });
+    clearBtn.addEventListener('click', () => { localStorage.removeItem('LAD_RECORDS'); alert('Saved data cleared. Reload will use embedded data.'); });
+
+    // ===== Bootstrapping =====
+    let currentRecords = [];
+    try {
+      const fromLocal = localStorage.getItem('LAD_RECORDS');
+      currentRecords = fromLocal ? JSON.parse(fromLocal) : EMBEDDED_DATA;
+    } catch(e){ currentRecords = EMBEDDED_DATA; }
+    renderAll(currentRecords);
+  </script>
+</body>
+</html>
