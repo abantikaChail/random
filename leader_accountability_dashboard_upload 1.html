@@ -206,140 +206,164 @@
     <div>Assumptions: Status codes R/A/G map to Overdue / In-progress / Completed respectively. Completion rate = G / Total. Data persists in browser if you click “Save to this browser”.</div>
   </footer>
 
-  <script>
-    // ===== Default embedded data from initial Excel (can be replaced by upload) =====
-    const EMBEDDED_DATA = [];
+<script>
+  // ===== Default embedded data from initial Excel (can be replaced by upload) =====
+  const EMBEDDED_DATA = [];
 
-    // ===== Utilities =====
-    function groupBy(arr, key) {
-      return arr.reduce((acc, item) => { const k = (item[key] || '').trim(); acc[k] = acc[k] || []; acc[k].push(item); return acc; }, {});
-    }
-    function normStatus(s) {
-      s = (s || '').toString().trim().toUpperCase();
-      if (!s) return 'A';
-      const ch = s[0];
-      if (ch === 'G') return 'G';
-      if (ch === 'A') return 'A';
-      if (ch === 'R') return 'R';
-      return 'A';
-    }
-    function toInt(n) { n = parseInt(n, 10); return isNaN(n) ? 0 : n; }
-    function setRing(id, percent, label) {
-      const deg = Math.min(360, Math.round((percent/100)*360));
-      const ring = document.getElementById(id);
-      ring.style.setProperty('--deg', deg + 'deg');
-      const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
-    }
+  // ===== Utilities =====
+  function groupBy(arr, key) {
+    return arr.reduce((acc, item) => { const k = (item[key] || '').trim(); acc[k] = acc[k] || []; acc[k].push(item); return acc; }, {});
+  }
+  function normStatus(s) {
+    s = (s || '').toString().trim().toUpperCase();
+    if (!s) return 'A';
+    const ch = s[0];
+    if (ch === 'G') return 'G';
+    if (ch === 'A') return 'A';
+    if (ch === 'R') return 'R';
+    return 'A';
+  }
+  function toInt(n) { n = parseInt(n, 10); return isNaN(n) ? 0 : n; }
+  function setRing(id, percent, label) {
+    const deg = Math.min(360, Math.round((percent/100)*360));
+    const ring = document.getElementById(id);
+    ring.style.setProperty('--deg', deg + 'deg');
+    const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
+  }
 
-    // ===== Parsing Excel (SheetJS) =====
-    function normalizeColumns(obj) {
-      const out = {};
-      const map = {
-        'sno': 'SNo','task': 'Task','assignedto': 'AssignedTo','medium': 'Medium','assigneddate': 'AssignedDate','dayssincetaskassignment': 'DaysSince','dayssince': 'DaysSince','status': 'Status','description': 'Description'
-      };
-      Object.keys(obj).forEach(k => {
-        const nk = k.toLowerCase().replace(/[^a-z0-9]/g,'');
-        const key = map[nk] || k; out[key] = obj[k];
-      });
-      // Coerce types / defaults
-      out.Task = (out.Task || '').toString().trim();
-      out.AssignedTo = (out.AssignedTo || '').toString().trim();
-      out.Medium = (out.Medium || '').toString().trim();
-      out.Status = normStatus(out.Status);
-      out.Description = (out.Description || '').toString().trim();
-      out.DaysSince = toInt(out.DaysSince);
-      // Date normalizing: keep as string; parsing not required
-      out.AssignedDate = (out.AssignedDate || '').toString().trim();
-      return out;
-    }
+  // ===== Parsing Excel (SheetJS) =====
+  function normalizeColumns(obj) {
+    const out = {};
+    const map = {
+      'sno': 'SNo','task': 'Task','assignedto': 'AssignedTo','medium': 'Medium','assigneddate': 'AssignedDate','dayssincetaskassignment': 'DaysSince','dayssince': 'DaysSince','status': 'Status','description': 'Description'
+    };
+    Object.keys(obj).forEach(k => {
+      const nk = k.toLowerCase().replace(/[^a-z0-9]/g,'');
+      const key = map[nk] || k; out[key] = obj[k];
+    });
+    // Coerce types / defaults
+    out.Task = (out.Task || '').toString().trim();
+    out.AssignedTo = (out.AssignedTo || '').toString().trim();
+    out.Medium = (out.Medium || '').toString().trim();
+    out.Status = normStatus(out.Status);
+    out.Description = (out.Description || '').toString().trim();
+    out.DaysSince = toInt(out.DaysSince);
+    // Date normalizing: keep as string; parsing not required
+    out.AssignedDate = (out.AssignedDate || '').toString().trim();
+    return out;
+  }
 
-    function sheetToRecords(workbook) {
-      const firstSheetName = workbook.SheetNames[0];
-      const ws = workbook.Sheets[firstSheetName];
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-      const records = raw.map(normalizeColumns).filter(r => r.Task || r.AssignedTo);
-      return records;
-    }
+  function sheetToRecords(workbook) {
+    const firstSheetName = workbook.SheetNames[0];
+    const ws = workbook.Sheets[firstSheetName];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+    const records = raw.map(normalizeColumns).filter(r => r.Task || r.AssignedTo);
+    return records;
+  }
 
-    // ===== Metrics =====
-    function computeMetrics(records) {
-      const tasks = records.map(r => ({
-        Task: r.Task || '',
-        Leader: (r.AssignedTo || '').trim() || 'Unassigned',
-        Medium: r.Medium || '',
-        AssignedDate: r.AssignedDate || '',
-        DaysSince: toInt(r.DaysSince),
-        Status: normStatus(r.Status || '')
-      }));
-      const total = tasks.length;
-      const g = tasks.filter(t => t.Status === 'G').length;
-      const a = tasks.filter(t => t.Status === 'A').length;
-      const r = tasks.filter(t => t.Status === 'R').length;
-      const pending = total - g;
-      const avgAgingPending = (() => { const arr = tasks.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
-      const byLeader = groupBy(tasks, 'Leader');
-      const leaders = Object.keys(byLeader).filter(l => l && l !== 'Unassigned');
-      const leaderStats = leaders.map(l => {
-        const list = byLeader[l];
-        const tot = list.length;
-        const gCount = list.filter(t => t.Status === 'G').length;
-        const aCount = list.filter(t => t.Status === 'A').length;
-        const rCount = list.filter(t => t.Status === 'R').length;
-        const pendingCount = tot - gCount;
-        const avgAge = (() => { const arr = list.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
-        const oldest = (() => { const pend = list.filter(t => t.Status !== 'G'); if (!pend.length) return null; return pend.sort((x,y) => y.DaysSince - x.DaysSince)[0]; })();
-        const completion = tot ? Math.round((gCount / tot) * 100) : 0;
-        return { leader: l, total: tot, g: gCount, a: aCount, r: rCount, pending: pendingCount, avgAge, oldest, completion };
-      });
-      leaderStats.sort((x,y) => (y.completion - x.completion) || (x.r - y.r) || (x.pending - y.pending));
-      const buckets = { '0-7':0, '8-14':0, '15-30':0, '31+':0 };
-      tasks.filter(t => t.Status !== 'G').forEach(t => { const d = t.DaysSince || 0; if (d <= 7) buckets['0-7']++; else if (d <= 14) buckets['8-14']++; else if (d <= 30) buckets['15-30']++; else buckets['31+']++; });
-      return { tasks, total, g, a, r, pending, avgAgingPending, leaderStats, buckets };
-    }
+  // ===== Metrics =====
+  function computeMetrics(records) {
+    const tasks = records.map(r => ({
+      Task: r.Task || '',
+      Leader: (r.AssignedTo || '').trim() || 'Unassigned',
+      Medium: r.Medium || '',
+      AssignedDate: r.AssignedDate || '',
+      DaysSince: toInt(r.DaysSince),
+      Status: normStatus(r.Status || '')
+    }));
+    const total = tasks.length;
+    const g = tasks.filter(t => t.Status === 'G').length;
+    const a = tasks.filter(t => t.Status === 'A').length;
+    const r = tasks.filter(t => t.Status === 'R').length;
+    const pending = total - g;
+    const avgAgingPending = (() => { const arr = tasks.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
+    const byLeader = groupBy(tasks, 'Leader');
+    const leaders = Object.keys(byLeader).filter(l => l && l !== 'Unassigned');
+    const leaderStats = leaders.map(l => {
+      const list = byLeader[l];
+      const tot = list.length;
+      const gCount = list.filter(t => t.Status === 'G').length;
+      const aCount = list.filter(t => t.Status === 'A').length;
+      const rCount = list.filter(t => t.Status === 'R').length;
+      const pendingCount = tot - gCount;
+      const avgAge = (() => { const arr = list.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
+      const oldest = (() => { const pend = list.filter(t => t.Status !== 'G'); if (!pend.length) return null; return pend.sort((x,y) => y.DaysSince - x.DaysSince)[0]; })();
+      const completion = tot ? Math.round((gCount / tot) * 100) : 0;
+      return { leader: l, total: tot, g: gCount, a: aCount, r: rCount, pending: pendingCount, avgAge, oldest, completion, list };
+    });
+    leaderStats.sort((x,y) => (y.completion - x.completion) || (x.r - y.r) || (x.pending - y.pending));
+    const buckets = { '0-7':0, '8-14':0, '15-30':0, '31+':0 };
+    tasks.filter(t => t.Status !== 'G').forEach(t => { const d = t.DaysSince || 0; if (d <= 7) buckets['0-7']++; else if (d <= 14) buckets['8-14']++; else if (d <= 30) buckets['15-30']++; else buckets['31+']++; });
+    return { tasks, total, g, a, r, pending, avgAgingPending, leaderStats, buckets };
+  }
 
-    // ===== Rendering =====
-    let statusChart = null; let agingChart = null;
-    function renderAll(records) {
-      const METRICS = computeMetrics(records);
-      // Leader Filter
-      const filterEl = document.getElementById('leaderFilter');
-      filterEl.innerHTML = '';
-      ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => { const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o); });
-      filterEl.onchange = (e) => { const val = e.target.value; const list = val==='All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val); renderLeaderboard(list); };
-      // KPI
-      const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
-      document.getElementById('overallCompletion').textContent = overallCompletion + '%'; setRing('ringCompletion', overallCompletion, overallCompletion + '%');
-      document.getElementById('totalTasks').textContent = METRICS.total; document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS.pending; setRing('ringTasks', METRICS.total?100:0, METRICS.total);
-      document.getElementById('overdueCount').textContent = METRICS.r; document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS.a; setRing('ringOverdue', METRICS.total?Math.round((METRICS.r/METRICS.total)*100):0, METRICS.r);
-      document.getElementById('avgAging').textContent = METRICS.avgAgingPending + ' days'; setRing('ringAging', Math.min(100, METRICS.avgAgingPending), METRICS.avgAgingPending + 'd');
-      document.getElementById('chipG').textContent = 'Green (G): ' + METRICS.g; document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS.a; document.getElementById('chipR').textContent = 'Red (R): ' + METRICS.r;
-      document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
-      document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
-      // Leaderboard
-      renderLeaderboard(METRICS.leaderStats);
-      // Heatmap & Focus
-      renderHeat(METRICS.leaderStats);
-      renderFocus(METRICS.leaderStats);
-      // Charts
-      const statusCtx = document.getElementById('statusChart').getContext('2d');
-      if (statusChart) statusChart.destroy();
-      statusChart = new Chart(statusCtx, {
-        type: 'doughnut', data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS.g, METRICS.a, METRICS.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] }, options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
-      });
-      const agingCtx = document.getElementById('agingChart').getContext('2d');
-      if (agingChart) agingChart.destroy();
-      agingChart = new Chart(agingCtx, {
-        type: 'bar', data: { labels: Object.keys(METRICS.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
-      });
-    }
+  // ===== Rendering =====
+  let statusChart = null; let agingChart = null;
+  const PAGE_SIZE = 10;
+  let heatPage = 1;
+  let focusPage = 1;
+  let currentFilteredStats = []; // stores leaderStats after filter
 
-    function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
+  function renderAll(records) {
+    const METRICS = computeMetrics(records);
 
-    function medalSVG(rank) {
-      const colors = ['#ffd700','#c0c0c0','#cd7f32']; const c = colors[rank-1] || getVar('--accent');
-      return `<svg class="medal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="${c}" opacity="0.9"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#111">${rank}</text></svg>`;
-    }
+    // Leader Filter
+    const filterEl = document.getElementById('leaderFilter');
+    filterEl.innerHTML = '';
+    ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => {
+      const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o);
+    });
 
+    // When filter changes: update the filtered stats and re-render leaderboard, heat, focus (pages reset to 1)
+    filterEl.onchange = (e) => {
+      const val = e.target.value;
+      const list = val==='All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val);
+      currentFilteredStats = list;
+      heatPage = 1; focusPage = 1;
+      renderLeaderboard(list);
+      renderHeat(list);
+      renderFocus(list);
+    };
+
+    // Initialize currentFilteredStats (All)
+    currentFilteredStats = METRICS.leaderStats;
+
+    // KPI
+    const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
+    document.getElementById('overallCompletion').textContent = overallCompletion + '%'; setRing('ringCompletion', overallCompletion, overallCompletion + '%');
+    document.getElementById('totalTasks').textContent = METRICS.total; document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS.pending; setRing('ringTasks', METRICS.total?100:0, METRICS.total);
+    document.getElementById('overdueCount').textContent = METRICS.r; document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS.a; setRing('ringOverdue', METRICS.total?Math.round((METRICS.r/METRICS.total)*100):0, METRICS.r);
+    document.getElementById('avgAging').textContent = METRICS.avgAgingPending + ' days'; setRing('ringAging', Math.min(100, METRICS.avgAgingPending), METRICS.avgAgingPending + 'd');
+    document.getElementById('chipG').textContent = 'Green (G): ' + METRICS.g; document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS.a; document.getElementById('chipR').textContent = 'Red (R): ' + METRICS.r;
+    document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
+    document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
+
+    // Leaderboard
+    renderLeaderboard(METRICS.leaderStats);
+
+    // Heatmap & Focus (initial)
+    renderHeat(METRICS.leaderStats);
+    renderFocus(METRICS.leaderStats);
+
+    // Charts
+    const statusCtx = document.getElementById('statusChart').getContext('2d');
+    if (statusChart) statusChart.destroy();
+    statusChart = new Chart(statusCtx, {
+      type: 'doughnut', data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS.g, METRICS.a, METRICS.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] }, options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
+    });
+    const agingCtx = document.getElementById('agingChart').getContext('2d');
+    if (agingChart) agingChart.destroy();
+    agingChart = new Chart(agingCtx, {
+      type: 'bar', data: { labels: Object.keys(METRICS.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
+    });
+  }
+
+  function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
+
+  function medalSVG(rank) {
+    const colors = ['#ffd700','#c0c0c0','#cd7f32']; const c = colors[rank-1] || getVar('--accent');
+    return `<svg class="medal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="${c}" opacity="0.9"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#111">${rank}</text></svg>`;
+  }
 
   function renderLeaderboard(list) {
     const lb = document.getElementById('leaderboard');
@@ -425,63 +449,148 @@
     };
   }
 
-    function renderHeat(stats){
-      const body = document.querySelector('#heatTable tbody'); body.innerHTML = '';
-      function heatColor(n){ const intensity = Math.min(1, n/5); const r = Math.round(255*intensity); const g = Math.round(124+(1-intensity)*60); const b = Math.round(255*(1-intensity)); return `rgb(${r},${g},${b})`; }
-      stats.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${row.leader}</td>
-                        <td><span class="heat" style="background:${heatColor(row.pending)}">${row.pending}</span></td>
-                        <td><span class="heat" style="background:${heatColor(row.a)}">${row.a}</span></td>
-                        <td><span class="heat" style="background:${heatColor(row.r)}">${row.r}</span></td>`;
-        body.appendChild(tr);
-      });
+  // Add pagination UI elements if not present (below the tables)
+  function ensurePaginationContainers() {
+    // Heatmap pagination container
+    let heatContainer = document.getElementById('heatPaginationContainer');
+    if (!heatContainer) {
+      heatContainer = document.createElement('div');
+      heatContainer.id = 'heatPaginationContainer';
+      heatContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+      document.getElementById('heatTable').parentNode.appendChild(heatContainer);
     }
-    function renderFocus(stats){
-      const body = document.querySelector('#focusTable tbody'); body.innerHTML = '';
-      stats.forEach(row => { const o = row.oldest; body.innerHTML += `<tr><td>${row.leader}</td><td>${o?o.Task:'All clear'}</td><td>${o?o.DaysSince:'-'}</td><td>${o?o.Status:'-'}</td></tr>`; });
+    // Focus pagination container
+    let focusContainer = document.getElementById('focusPaginationContainer');
+    if (!focusContainer) {
+      focusContainer = document.createElement('div');
+      focusContainer.id = 'focusPaginationContainer';
+      focusContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+      document.getElementById('focusTable').parentNode.appendChild(focusContainer);
     }
+  }
 
-    // ===== Theme toggle =====
-    document.getElementById('themeToggle').addEventListener('click', () => {
-      document.body.classList.toggle('light');
-      if (statusChart) { statusChart.options.plugins.legend.labels.color = getVar('--text'); statusChart.update(); }
-      if (agingChart) { agingChart.update(); }
+  function renderHeat(stats) {
+    ensurePaginationContainers();
+    const body = document.querySelector('#heatTable tbody'); body.innerHTML = '';
+    function heatColor(n){ const intensity = Math.min(1, n/5); const r = Math.round(255*intensity); const g = Math.round(124+(1-intensity)*60); const b = Math.round(255*(1-intensity)); return `rgb(${r},${g},${b})`; }
+
+    // Pagination logic
+    const totalItems = stats.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+    heatPage = Math.min(Math.max(1, heatPage), totalPages);
+    const start = (heatPage - 1) * PAGE_SIZE;
+    const pageItems = stats.slice(start, start + PAGE_SIZE);
+
+    pageItems.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${row.leader}</td>
+                      <td><span class="heat" style="background:${heatColor(row.pending)}">${row.pending}</span></td>
+                      <td><span class="heat" style="background:${heatColor(row.a)}">${row.a}</span></td>
+                      <td><span class="heat" style="background:${heatColor(row.r)}">${row.r}</span></td>`;
+      body.appendChild(tr);
     });
 
-    // ===== Upload handling =====
-    const fileInput = document.getElementById('fileInput');
-    const dropZone = document.getElementById('dropZone');
-    const appendMode = document.getElementById('appendMode');
+    // Build pagination controls
+    const pc = document.getElementById('heatPaginationContainer');
+    pc.innerHTML = '';
+    if (totalPages > 1) {
+      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = heatPage===1;
+      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = heatPage===totalPages;
+      const info = document.createElement('div'); info.className='muted'; info.style.marginLeft='8px'; info.textContent = `Page ${heatPage} / ${totalPages}`;
 
-    fileInput.addEventListener('change', async (e) => { if (!e.target.files.length) return; await handleFile(e.target.files[0]); fileInput.value=''; });
-    ;['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = 'rgba(0,212,255,0.08)'; }));
-    ;['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = ''; }));
-    dropZone.addEventListener('drop', async (e) => { const f = e.dataTransfer.files[0]; if (f) await handleFile(f); });
+      prev.onclick = () => { heatPage = Math.max(1, heatPage-1); renderHeat(currentFilteredStats); };
+      next.onclick = () => { heatPage = Math.min(totalPages, heatPage+1); renderHeat(currentFilteredStats); };
 
-    async function handleFile(file){
-      const data = await file.arrayBuffer();
-      const wb = XLSX.read(data, { type:'array' });
-      const recs = sheetToRecords(wb);
-      let merged = recs;
-      if (appendMode.checked){ merged = [...currentRecords, ...recs]; }
-      currentRecords = merged;
-      renderAll(currentRecords);
+      pc.appendChild(prev);
+      pc.appendChild(info);
+      pc.appendChild(next);
     }
+  }
 
-    // ===== Local persistence =====
-    const saveBtn = document.getElementById('saveLocal');
-    const clearBtn = document.getElementById('clearLocal');
-    saveBtn.addEventListener('click', () => { try { localStorage.setItem('LAD_RECORDS', JSON.stringify(currentRecords)); saveBtn.textContent = 'Saved ✓'; setTimeout(()=>saveBtn.textContent='Save to this browser', 1500); } catch(e){ alert('Save failed: ' + e.message); } });
-    clearBtn.addEventListener('click', () => { localStorage.removeItem('LAD_RECORDS'); alert('Saved data cleared. Reload will use embedded data.'); });
+  function renderFocus(stats) {
+    ensurePaginationContainers();
+    const body = document.querySelector('#focusTable tbody'); body.innerHTML = '';
 
-    // ===== Bootstrapping =====
-    let currentRecords = [];
-    try {
-      const fromLocal = localStorage.getItem('LAD_RECORDS');
-      currentRecords = fromLocal ? JSON.parse(fromLocal) : EMBEDDED_DATA;
-    } catch(e){ currentRecords = EMBEDDED_DATA; }
+    // Create a dataset: one oldest pending per leader (same as before)
+    const rows = stats.map(row => {
+      const o = row.oldest;
+      return { leader: row.leader, task: o?o.Task:'All clear', days: o?o.DaysSince:'-', status: o?o.Status:'-' };
+    });
+
+    // Pagination
+    const totalItems = rows.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+    focusPage = Math.min(Math.max(1, focusPage), totalPages);
+    const start = (focusPage - 1) * PAGE_SIZE;
+    const pageItems = rows.slice(start, start + PAGE_SIZE);
+
+    pageItems.forEach(r => {
+      body.innerHTML += `<tr><td>${r.leader}</td><td>${r.task}</td><td>${r.days}</td><td>${r.status}</td></tr>`;
+    });
+
+    // Focus pagination controls
+    const pc = document.getElementById('focusPaginationContainer');
+    pc.innerHTML = '';
+    if (totalPages > 1) {
+      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = focusPage===1;
+      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = focusPage===totalPages;
+      const info = document.createElement('div'); info.className='muted'; info.style.marginLeft='8px'; info.textContent = `Page ${focusPage} / ${totalPages}`;
+
+      prev.onclick = () => { focusPage = Math.max(1, focusPage-1); renderFocus(currentFilteredStats); };
+      next.onclick = () => { focusPage = Math.min(totalPages, focusPage+1); renderFocus(currentFilteredStats); };
+
+      pc.appendChild(prev);
+      pc.appendChild(info);
+      pc.appendChild(next);
+    }
+  }
+
+  // ===== Theme toggle =====
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    document.body.classList.toggle('light');
+    if (statusChart) { statusChart.options.plugins.legend.labels.color = getVar('--text'); statusChart.update(); }
+    if (agingChart) { agingChart.update(); }
+  });
+
+  // ===== Upload handling =====
+  const fileInput = document.getElementById('fileInput');
+  const dropZone = document.getElementById('dropZone');
+  const appendMode = document.getElementById('appendMode');
+
+  fileInput.addEventListener('change', async (e) => { if (!e.target.files.length) return; await handleFile(e.target.files[0]); fileInput.value=''; });
+  ;['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = 'rgba(0,212,255,0.08)'; }));
+  ;['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = ''; }));
+  dropZone.addEventListener('drop', async (e) => { const f = e.dataTransfer.files[0]; if (f) await handleFile(f); });
+
+  async function handleFile(file){
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type:'array' });
+    const recs = sheetToRecords(wb);
+    let merged = recs;
+    if (appendMode.checked){ merged = [...currentRecords, ...recs]; }
+    currentRecords = merged;
     renderAll(currentRecords);
-  </script>
+
+    // reset pages & filter so user sees initial pages of new data
+    heatPage = 1; focusPage = 1;
+    const filterEl = document.getElementById('leaderFilter');
+    if (filterEl) filterEl.value = 'All Leaders';
+  }
+
+  // ===== Local persistence =====
+  const saveBtn = document.getElementById('saveLocal');
+  const clearBtn = document.getElementById('clearLocal');
+  saveBtn.addEventListener('click', () => { try { localStorage.setItem('LAD_RECORDS', JSON.stringify(currentRecords)); saveBtn.textContent = 'Saved ✓'; setTimeout(()=>saveBtn.textContent='Save to this browser', 1500); } catch(e){ alert('Save failed: ' + e.message); } });
+  clearBtn.addEventListener('click', () => { localStorage.removeItem('LAD_RECORDS'); alert('Saved data cleared. Reload will use embedded data.'); });
+
+  // ===== Bootstrapping =====
+  let currentRecords = [];
+  try {
+    const fromLocal = localStorage.getItem('LAD_RECORDS');
+    currentRecords = fromLocal ? JSON.parse(fromLocal) : EMBEDDED_DATA;
+  } catch(e){ currentRecords = EMBEDDED_DATA; }
+  renderAll(currentRecords);
+</script>
+
 </body>
 </html>
