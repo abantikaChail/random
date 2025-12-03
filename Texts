@@ -1,4 +1,4 @@
-// ===== Stacked RAG bar chart (replace the old function with this) =====
+// ===== Stacked RAG bar chart (Aging-style sizing & behavior) =====
 let stackedChart = null;
 
 function renderStackedBar(stats) {
@@ -8,35 +8,23 @@ function renderStackedBar(stats) {
   const ambers = stats.map(s => s.a || 0);
   const reds   = stats.map(s => s.r || 0);
 
-  const canvas = document.getElementById('stackedBarChart');
-  if (!canvas) return;
+  const ctxEl = document.getElementById('stackedBarChart');
+  if (!ctxEl) return;
 
-  // ======= CONTROL HEIGHT HERE =======
-  const TARGET_HEIGHT_PX = 90;           // <-- change this to 70 / 100 / 120 etc.
-  // Optionally: dynamic height based on number of labels (uncomment if desired)
-  // const TARGET_HEIGHT_PX = Math.min(140, 40 + labels.length * 14);
+  // Destroy any old instance
+  if (stackedChart) stackedChart.destroy();
 
-  // Force the canvas element to the target height (both attribute and CSS)
-  canvas.height = TARGET_HEIGHT_PX;              // sets internal drawing buffer height
-  canvas.style.height = TARGET_HEIGHT_PX + 'px'; // sets CSS layout height
-
-  // If there's an existing chart, destroy it before creating a new one
-  if (stackedChart) {
-    try { stackedChart.destroy(); } catch(e){ /* ignore */ }
-    stackedChart = null;
-  }
-
-  // Colors from CSS variables to keep visual consistency
+  // Colors from CSS variables (keeps the look consistent)
   const colG = getVar('--success') || '#35d07f';
   const colA = getVar('--warning') || '#ffb648';
   const colR = getVar('--danger')  || '#ff5c7a';
 
-  // Build the chart
-  const ctx = canvas.getContext('2d');
+  // Create stacked bar with same sizing approach as agingChart
+  const ctx = ctxEl.getContext('2d');
   stackedChart = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels,
+      labels: labels,
       datasets: [
         { label: 'Green (G)',  data: greens, backgroundColor: colG, stack: 'stack1' },
         { label: 'Amber (A)',  data: ambers, backgroundColor: colA, stack: 'stack1' },
@@ -45,7 +33,7 @@ function renderStackedBar(stats) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false, // IMPORTANT: tells Chart.js to obey canvas height
+      // DO NOT force maintainAspectRatio:false here — keep Chart.js default behavior
       scales: {
         x: {
           stacked: true,
@@ -59,10 +47,15 @@ function renderStackedBar(stats) {
         }
       },
       plugins: {
-        legend: { position:'top', labels: { color: getVar('--text') || undefined } },
+        legend: {
+          position: 'top',
+          labels: { color: getVar('--text') || undefined }
+        },
         tooltip: {
           callbacks: {
-            label: function(ctx) { return (ctx.dataset.label || '') + ': ' + (ctx.raw || 0); },
+            label: function(context) {
+              return (context.dataset.label || '') + ': ' + (context.raw || 0);
+            },
             footer: function(items) {
               if (!items || !items.length) return '';
               const i = items[0].dataIndex;
