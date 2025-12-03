@@ -1,0 +1,164 @@
+// helper: split "AssignedTo" into an array of individual names
+function splitAssigneesField(val) {
+  if (!val && val !== 0) return ['Unassigned'];
+  // convert to string and normalize separators: commas, semicolons, slashes, pipes, ampersand, ' and '
+  const s = String(val).trim();
+  if (!s) return ['Unassigned'];
+
+  // split on common separators and the word ' and ' (case-insensitive)
+  const parts = s.split(/[,;\/\|&]|\s+and\s+/i)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  // If the whole string looks like "person3,person1" (no spaces), the split already handles it.
+  // As a final fallback, return the original string as one item.
+  return parts.length ? parts : [s];
+}
+
+// helper: normalize a person name to consistent form (trim + collapse spaces).
+// You can opt to title-case names by uncommenting the title-case lines if desired.
+function normalizePersonName(name) {
+  if (!name && name !== 0) return 'Unassigned';
+  let s = String(name).trim().replace(/\s+/g, ' ');
+  // Optional: title-case to ensure 'john DOE' -> 'John Doe'
+  // s = s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  return s;
+}
+
+// Replace sheetToRecords with this expanded version: it will create one output record per assignee
+function sheetToRecords(workbook) {
+  const firstSheetName = workbook.SheetNames[0];
+  const ws = workbook.Sheets[firstSheetName];
+  const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+
+  const out = [];
+  raw.forEach(row => {
+    const norm = normalizeColumns(row); // keep your existing normalization for columns
+    const assignees = splitAssigneesField(norm.AssignedTo);
+
+    assignees.forEach(a => {
+      const single = Object.assign({}, norm);
+      single.AssignedTo = normalizePersonName(a);
+      out.push(single);
+    });
+  });
+
+  // Filter out totally empty rows (optional)
+  const records = out.filter(r => (r.Task && r.Task.toString().trim()) || (r.AssignedTo && r.AssignedTo.toString().trim() !== ''));
+  return records;
+}
+
+
+
+// simple dedupe by Task + AssignedTo + AssignedDate
+const unique = [];
+const seen = new Set();
+records.forEach(r => {
+  const key = `${(r.Task||'').trim()}||${(r.AssignedTo||'').trim()}||${(r.AssignedDate||'').trim()}`;
+  if (!seen.has(key)) { seen.add(key); unique.push(r); }
+});
+return unique;
+
+
+
+
+
+// Expand original records into per-person records (one record per assignee)
+// Keeps other fields same; AssignedTo normalized per person.
+function expandPerPersonRecords(originalRecords) {
+  const out = [];
+  originalRecords.forEach(r => {
+    const assigneesRaw = r.AssignedTo || '';
+    // split on commas, semicolons, slashes, pipes, ampersands, and " and "
+    const parts = String(assigneesRaw).split(/[,;\/\|&]|\s+and\s+/i).map(p => p.trim()).filter(Boolean);
+    // if no assignee, keep 'Unassigned'
+    const assignees = parts.length ? parts : ['Unassigned'];
+    assignees.forEach(a => {
+      const copy = Object.assign({}, r);
+      copy.AssignedTo = a.replace(/\s+/g,' ').trim(); // normalize spaces
+      out.push(copy);
+    });
+  });
+  return out;
+}
+
+
+
+
+
+function renderAll(records) {
+  // records === originalRecords (one row per excel row)
+  const METRICS_OVERALL = computeMetrics(records);               // overall totals (unchanged)
+  const perPersonRecords = expandPerPersonRecords(records);     // one row per individual
+  const METRICS = computeMetrics(perPersonRecords);             // used for leaderboard, heat, focus, stacked
+
+  // ---------------- Leader Filter (populate from per-person leaderStats) ----------------
+  const filterEl = document.getElementById('leaderFilter');
+  filterEl.innerHTML = '';
+  ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => {
+    const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o);
+  });
+
+  // leaderFilter behavior: act on per-person leaderStats
+  filterEl.onchange = (e) => {
+    const val = e.target.value;
+    const list = val === 'All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val);
+    currentFilteredStats = list;
+    heatPage = 1; focusPage = 1;
+    renderLeaderboard(list);
+    renderHeat(list);
+    renderFocus(list);
+    renderStackedBar(list);
+  };
+
+  // initialize currentFilteredStats to per-person leaderStats
+  currentFilteredStats = METRICS.leaderStats;
+
+  // ---------------- KPIs: use METRICS_OVERALL (original counts) ----------------
+  const overallCompletion = METRICS_OVERALL.total ? Math.round((METRICS_OVERALL.g / METRICS_OVERALL.total) * 100) : 0;
+  document.getElementById('overallCompletion').textContent = overallCompletion + '%';
+  setRing('ringCompletion', overallCompletion, overallCompletion + '%');
+
+  document.getElementById('totalTasks').textContent = METRICS_OVERALL.total;
+  document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS_OVERALL.pending;
+  setRing('ringTasks', METRICS_OVERALL.total ? 100 : 0, METRICS_OVERALL.total);
+
+  document.getElementById('overdueCount').textContent = METRICS_OVERALL.r;
+  document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS_OVERALL.a;
+  setRing('ringOverdue', METRICS_OVERALL.total ? Math.round((METRICS_OVERALL.r / METRICS_OVERALL.total) * 100) : 0, METRICS_OVERALL.r);
+
+  document.getElementById('avgAging').textContent = METRICS_OVERALL.avgAgingPending + ' days';
+  setRing('ringAging', Math.min(100, METRICS_OVERALL.avgAgingPending), METRICS_OVERALL.avgAgingPending + 'd');
+
+  document.getElementById('chipG').textContent = 'Green (G): ' + METRICS_OVERALL.g;
+  document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS_OVERALL.a;
+  document.getElementById('chipR').textContent = 'Red (R): ' + METRICS_OVERALL.r;
+
+  document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
+  document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
+
+  // Render per-person visualizations & lists (leaderboard, heatmap, focus, stacked)
+  renderLeaderboard(METRICS.leaderStats);
+  renderHeat(METRICS.leaderStats);
+  renderFocus(METRICS.leaderStats);
+
+  // Charts: status & aging should reflect overall totals or per-person?
+  // Keep status & aging as before - you may prefer overall totals for these:
+  const statusCtx = document.getElementById('statusChart').getContext('2d');
+  if (statusChart) statusChart.destroy();
+  statusChart = new Chart(statusCtx, {
+    type: 'doughnut',
+    data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS_OVERALL.g, METRICS_OVERALL.a, METRICS_OVERALL.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] },
+    options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
+  });
+
+  const agingCtx = document.getElementById('agingChart').getContext('2d');
+  if (agingChart) agingChart.destroy();
+  agingChart = new Chart(agingCtx, {
+    type: 'bar', data: { labels: Object.keys(METRICS_OVERALL.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS_OVERALL.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
+  });
+
+  // stacked bar: use per-person leaderStats
+  renderStackedBar(METRICS.leaderStats);
+}
+
