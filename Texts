@@ -1,31 +1,39 @@
-// ===== Stacked RAG bar chart =====
+// ===== Stacked RAG bar chart (replace the old function with this) =====
 let stackedChart = null;
 
-/**
- * Render stacked bar chart for a given leaderStats array (each item has leader, g, a, r).
- * Expects `stats` to be an array of { leader, g, a, r, ... }.
- */
 function renderStackedBar(stats) {
-  // Defensive: ensure stats is array
   stats = stats || [];
-
-  // Prepare labels and three datasets (G, A, R)
   const labels = stats.map(s => s.leader);
   const greens = stats.map(s => s.g || 0);
   const ambers = stats.map(s => s.a || 0);
   const reds   = stats.map(s => s.r || 0);
 
-  // Destroy previous chart if present
-  const ctx = document.getElementById('stackedBarChart');
-  if (!ctx) return;
-  if (stackedChart) stackedChart.destroy();
+  const canvas = document.getElementById('stackedBarChart');
+  if (!canvas) return;
 
-  // Use CSS variables for colors so appearance stays consistent
+  // ======= CONTROL HEIGHT HERE =======
+  const TARGET_HEIGHT_PX = 90;           // <-- change this to 70 / 100 / 120 etc.
+  // Optionally: dynamic height based on number of labels (uncomment if desired)
+  // const TARGET_HEIGHT_PX = Math.min(140, 40 + labels.length * 14);
+
+  // Force the canvas element to the target height (both attribute and CSS)
+  canvas.height = TARGET_HEIGHT_PX;              // sets internal drawing buffer height
+  canvas.style.height = TARGET_HEIGHT_PX + 'px'; // sets CSS layout height
+
+  // If there's an existing chart, destroy it before creating a new one
+  if (stackedChart) {
+    try { stackedChart.destroy(); } catch(e){ /* ignore */ }
+    stackedChart = null;
+  }
+
+  // Colors from CSS variables to keep visual consistency
   const colG = getVar('--success') || '#35d07f';
   const colA = getVar('--warning') || '#ffb648';
   const colR = getVar('--danger')  || '#ff5c7a';
 
-  stackedChart = new Chart(ctx.getContext('2d'), {
+  // Build the chart
+  const ctx = canvas.getContext('2d');
+  stackedChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels,
@@ -37,42 +45,31 @@ function renderStackedBar(stats) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
+      maintainAspectRatio: false, // IMPORTANT: tells Chart.js to obey canvas height
       scales: {
         x: {
           stacked: true,
-          ticks: { color: getVar('--text') || undefined },
+          ticks: { color: getVar('--text') || undefined, maxRotation: 45, minRotation: 0 },
           grid: { display: false }
         },
         y: {
           stacked: true,
           beginAtZero: true,
-          ticks: { color: getVar('--text') || undefined },
+          ticks: { color: getVar('--text') || undefined, precision: 0 }
         }
       },
       plugins: {
-        legend: {
-          position: 'top',
-          labels: { color: getVar('--text') || undefined }
-        },
+        legend: { position:'top', labels: { color: getVar('--text') || undefined } },
         tooltip: {
-          enabled: true,
           callbacks: {
-            // Each segment shows label + count
-            label: function(context) {
-              const label = context.dataset.label || '';
-              const value = context.raw || 0;
-              return label + ': ' + value;
-            },
-            // Footer shows total for that bar
-            footer: function(tooltipItems) {
-              if (!tooltipItems || !tooltipItems.length) return '';
-              const idx = tooltipItems[0].dataIndex;
-              const total = (greens[idx] || 0) + (ambers[idx] || 0) + (reds[idx] || 0);
+            label: function(ctx) { return (ctx.dataset.label || '') + ': ' + (ctx.raw || 0); },
+            footer: function(items) {
+              if (!items || !items.length) return '';
+              const i = items[0].dataIndex;
+              const total = (greens[i]||0) + (ambers[i]||0) + (reds[i]||0);
               return 'Total: ' + total;
             }
           },
-          // consistent styling with theme
           bodyColor: getVar('--text') || undefined,
           titleColor: getVar('--text') || undefined,
           footerColor: getVar('--muted') || undefined
