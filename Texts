@@ -1,385 +1,84 @@
-<script>
-  // ===== Default embedded data from initial Excel (can be replaced by upload) =====
-  const EMBEDDED_DATA = [];
+// ===== Stacked RAG bar chart =====
+let stackedChart = null;
 
-  // ===== Utilities =====
-  function groupBy(arr, key) {
-    return arr.reduce((acc, item) => { const k = (item[key] || '').trim(); acc[k] = acc[k] || []; acc[k].push(item); return acc; }, {});
-  }
-  function normStatus(s) {
-    s = (s || '').toString().trim().toUpperCase();
-    if (!s) return 'A';
-    const ch = s[0];
-    if (ch === 'G') return 'G';
-    if (ch === 'A') return 'A';
-    if (ch === 'R') return 'R';
-    return 'A';
-  }
-  function toInt(n) { n = parseInt(n, 10); return isNaN(n) ? 0 : n; }
-  function setRing(id, percent, label) {
-    const deg = Math.min(360, Math.round((percent/100)*360));
-    const ring = document.getElementById(id);
-    ring.style.setProperty('--deg', deg + 'deg');
-    const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
-  }
+/**
+ * Render stacked bar chart for a given leaderStats array (each item has leader, g, a, r).
+ * Expects `stats` to be an array of { leader, g, a, r, ... }.
+ */
+function renderStackedBar(stats) {
+  // Defensive: ensure stats is array
+  stats = stats || [];
 
-  // ===== Parsing Excel (SheetJS) =====
-  function normalizeColumns(obj) {
-    const out = {};
-    const map = {
-      'sno': 'SNo','task': 'Task','assignedto': 'AssignedTo','medium': 'Medium','assigneddate': 'AssignedDate','dayssincetaskassignment': 'DaysSince','dayssince': 'DaysSince','status': 'Status','description': 'Description'
-    };
-    Object.keys(obj).forEach(k => {
-      const nk = k.toLowerCase().replace(/[^a-z0-9]/g,'');
-      const key = map[nk] || k; out[key] = obj[k];
-    });
-    // Coerce types / defaults
-    out.Task = (out.Task || '').toString().trim();
-    out.AssignedTo = (out.AssignedTo || '').toString().trim();
-    out.Medium = (out.Medium || '').toString().trim();
-    out.Status = normStatus(out.Status);
-    out.Description = (out.Description || '').toString().trim();
-    out.DaysSince = toInt(out.DaysSince);
-    // Date normalizing: keep as string; parsing not required
-    out.AssignedDate = (out.AssignedDate || '').toString().trim();
-    return out;
-  }
+  // Prepare labels and three datasets (G, A, R)
+  const labels = stats.map(s => s.leader);
+  const greens = stats.map(s => s.g || 0);
+  const ambers = stats.map(s => s.a || 0);
+  const reds   = stats.map(s => s.r || 0);
 
-  function sheetToRecords(workbook) {
-    const firstSheetName = workbook.SheetNames[0];
-    const ws = workbook.Sheets[firstSheetName];
-    const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-    const records = raw.map(normalizeColumns).filter(r => r.Task || r.AssignedTo);
-    return records;
-  }
+  // Destroy previous chart if present
+  const ctx = document.getElementById('stackedBarChart');
+  if (!ctx) return;
+  if (stackedChart) stackedChart.destroy();
 
-  // ===== Metrics =====
-  function computeMetrics(records) {
-    const tasks = records.map(r => ({
-      Task: r.Task || '',
-      Leader: (r.AssignedTo || '').trim() || 'Unassigned',
-      Medium: r.Medium || '',
-      AssignedDate: r.AssignedDate || '',
-      DaysSince: toInt(r.DaysSince),
-      Status: normStatus(r.Status || '')
-    }));
-    const total = tasks.length;
-    const g = tasks.filter(t => t.Status === 'G').length;
-    const a = tasks.filter(t => t.Status === 'A').length;
-    const r = tasks.filter(t => t.Status === 'R').length;
-    const pending = total - g;
-    const avgAgingPending = (() => { const arr = tasks.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
-    const byLeader = groupBy(tasks, 'Leader');
-    const leaders = Object.keys(byLeader).filter(l => l && l !== 'Unassigned');
-    const leaderStats = leaders.map(l => {
-      const list = byLeader[l];
-      const tot = list.length;
-      const gCount = list.filter(t => t.Status === 'G').length;
-      const aCount = list.filter(t => t.Status === 'A').length;
-      const rCount = list.filter(t => t.Status === 'R').length;
-      const pendingCount = tot - gCount;
-      const avgAge = (() => { const arr = list.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0); return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0; })();
-      const oldest = (() => { const pend = list.filter(t => t.Status !== 'G'); if (!pend.length) return null; return pend.sort((x,y) => y.DaysSince - x.DaysSince)[0]; })();
-      const completion = tot ? Math.round((gCount / tot) * 100) : 0;
-      return { leader: l, total: tot, g: gCount, a: aCount, r: rCount, pending: pendingCount, avgAge, oldest, completion, list };
-    });
-    leaderStats.sort((x,y) => (y.completion - x.completion) || (x.r - y.r) || (x.pending - y.pending));
-    const buckets = { '0-7':0, '8-14':0, '15-30':0, '31+':0 };
-    tasks.filter(t => t.Status !== 'G').forEach(t => { const d = t.DaysSince || 0; if (d <= 7) buckets['0-7']++; else if (d <= 14) buckets['8-14']++; else if (d <= 30) buckets['15-30']++; else buckets['31+']++; });
-    return { tasks, total, g, a, r, pending, avgAgingPending, leaderStats, buckets };
-  }
+  // Use CSS variables for colors so appearance stays consistent
+  const colG = getVar('--success') || '#35d07f';
+  const colA = getVar('--warning') || '#ffb648';
+  const colR = getVar('--danger')  || '#ff5c7a';
 
-  // ===== Rendering =====
-  let statusChart = null; let agingChart = null;
-  const PAGE_SIZE = 10;
-  let heatPage = 1;
-  let focusPage = 1;
-  let currentFilteredStats = []; // stores leaderStats after filter
-
-  function renderAll(records) {
-    const METRICS = computeMetrics(records);
-
-    // Leader Filter
-    const filterEl = document.getElementById('leaderFilter');
-    filterEl.innerHTML = '';
-    ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => {
-      const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o);
-    });
-
-    // When filter changes: update the filtered stats and re-render leaderboard, heat, focus (pages reset to 1)
-    filterEl.onchange = (e) => {
-      const val = e.target.value;
-      const list = val==='All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val);
-      currentFilteredStats = list;
-      heatPage = 1; focusPage = 1;
-      renderLeaderboard(list);
-      renderHeat(list);
-      renderFocus(list);
-    };
-
-    // Initialize currentFilteredStats (All)
-    currentFilteredStats = METRICS.leaderStats;
-
-    // KPI
-    const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
-    document.getElementById('overallCompletion').textContent = overallCompletion + '%'; setRing('ringCompletion', overallCompletion, overallCompletion + '%');
-    document.getElementById('totalTasks').textContent = METRICS.total; document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS.pending; setRing('ringTasks', METRICS.total?100:0, METRICS.total);
-    document.getElementById('overdueCount').textContent = METRICS.r; document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS.a; setRing('ringOverdue', METRICS.total?Math.round((METRICS.r/METRICS.total)*100):0, METRICS.r);
-    document.getElementById('avgAging').textContent = METRICS.avgAgingPending + ' days'; setRing('ringAging', Math.min(100, METRICS.avgAgingPending), METRICS.avgAgingPending + 'd');
-    document.getElementById('chipG').textContent = 'Green (G): ' + METRICS.g; document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS.a; document.getElementById('chipR').textContent = 'Red (R): ' + METRICS.r;
-    document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
-    document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
-
-    // Leaderboard
-    renderLeaderboard(METRICS.leaderStats);
-
-    // Heatmap & Focus (initial)
-    renderHeat(METRICS.leaderStats);
-    renderFocus(METRICS.leaderStats);
-
-    // Charts
-    const statusCtx = document.getElementById('statusChart').getContext('2d');
-    if (statusChart) statusChart.destroy();
-    statusChart = new Chart(statusCtx, {
-      type: 'doughnut', data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS.g, METRICS.a, METRICS.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] }, options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
-    });
-    const agingCtx = document.getElementById('agingChart').getContext('2d');
-    if (agingChart) agingChart.destroy();
-    agingChart = new Chart(agingCtx, {
-      type: 'bar', data: { labels: Object.keys(METRICS.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
-    });
-  }
-
-  function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
-
-  function medalSVG(rank) {
-    const colors = ['#ffd700','#c0c0c0','#cd7f32']; const c = colors[rank-1] || getVar('--accent');
-    return `<svg class="medal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="${c}" opacity="0.9"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#111">${rank}</text></svg>`;
-  }
-
-  function renderLeaderboard(list) {
-    const lb = document.getElementById('leaderboard');
-    lb.innerHTML = '';
-
-    // Ensure the grid starts collapsed (top 3 visible)
-    lb.classList.add('lb-collapsed');
-
-    // Build all cards as direct children of the grid
-    list.forEach((row, idx) => {
-      const card = document.createElement('div');
-      card.className = 'leader-card';
-
-      const initials = row.leader.split(/\s+/).map(x => x[0]).join('').slice(0,2).toUpperCase();
-      const badge = idx < 3 ? medalSVG(idx + 1) : '';
-      const chip1 = row.completion >= 90 ? '🔥 On Fire' : (row.completion >= 75 ? '⚡ Sprint Ready' : '🎯 Push to 75%');
-      const chip2 = row.r > 0 ? `${row.r} overdue` : 'No overdue';
-      const chip3 = row.avgAge ? `Avg age ${row.avgAge}d` : 'Fresh';
-
-      card.innerHTML = `
-        <div class="leader-header">
-          <div style="display:flex; gap:12px; align-items:center;">
-            <div class="avatar">${initials}</div>
-            <div>
-              <div style="font-weight:700">${row.leader}</div>
-              <div class="muted">${row.g}/${row.total} completed</div>
-            </div>
-          </div>
-          ${badge}
-        </div>
-        <div class="bar"><span style="width:${row.completion}%;"></span></div>
-        <div style="display:flex; justify-content:space-between; margin-top:6px;">
-          <div class="muted">Completion</div>
-          <div style="font-weight:700">${row.completion}%</div>
-        </div>
-        <div class="chips">
-          <span class="chip">${chip1}</span>
-          <span class="chip">${chip2}</span>
-          <span class="chip">${chip3}</span>
-        </div>
-      `;
-      lb.appendChild(card);
-    });
-
-    // Create or reuse a toggle button placed AFTER the grid (so it won't be a grid item)
-    let toggleBtn = document.getElementById('lbToggle');
-    if (!toggleBtn) {
-      toggleBtn = document.createElement('button');
-      toggleBtn.id = 'lbToggle';
-      toggleBtn.className = 'lb-toggle-btn';
-      toggleBtn.type = 'button';
-      toggleBtn.setAttribute('aria-controls', 'leaderboard');
-      toggleBtn.setAttribute('aria-expanded', 'false');
-      // place the button after the grid within the same section
-      lb.parentNode.appendChild(toggleBtn);
+  stackedChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Green (G)',  data: greens, backgroundColor: colG, stack: 'stack1' },
+        { label: 'Amber (A)',  data: ambers, backgroundColor: colA, stack: 'stack1' },
+        { label: 'Red (R)',    data: reds,   backgroundColor: colR, stack: 'stack1' }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: getVar('--text') || undefined },
+          grid: { display: false }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: getVar('--text') || undefined },
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: getVar('--text') || undefined }
+        },
+        tooltip: {
+          enabled: true,
+          callbacks: {
+            // Each segment shows label + count
+            label: function(context) {
+              const label = context.dataset.label || '';
+              const value = context.raw || 0;
+              return label + ': ' + value;
+            },
+            // Footer shows total for that bar
+            footer: function(tooltipItems) {
+              if (!tooltipItems || !tooltipItems.length) return '';
+              const idx = tooltipItems[0].dataIndex;
+              const total = (greens[idx] || 0) + (ambers[idx] || 0) + (reds[idx] || 0);
+              return 'Total: ' + total;
+            }
+          },
+          // consistent styling with theme
+          bodyColor: getVar('--text') || undefined,
+          titleColor: getVar('--text') || undefined,
+          footerColor: getVar('--muted') || undefined
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
     }
-
-    // Hide the button if <=3 items
-    if (list.length <= 3) {
-      toggleBtn.style.display = 'none';
-      return;
-    } else {
-      toggleBtn.style.display = 'inline-flex';
-    }
-
-    // Update button text based on state
-    const setBtnText = () => {
-      const collapsed = lb.classList.contains('lb-collapsed');
-      toggleBtn.innerHTML = `<span class="lb-chevron">▼</span> ${collapsed ? 'Show more (' + (list.length - 3) + ')' : 'Show less'}`;
-      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-      // Flip chevron
-      const chevron = toggleBtn.querySelector('.lb-chevron');
-      chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
-    };
-
-    // Initial label
-    setBtnText();
-
-    // Toggle behavior: simply add/remove the class on the grid
-    toggleBtn.onclick = () => {
-      lb.classList.toggle('lb-collapsed');
-      setBtnText();
-    };
-  }
-
-  // Add pagination UI elements if not present (below the tables)
-  function ensurePaginationContainers() {
-    // Heatmap pagination container
-    let heatContainer = document.getElementById('heatPaginationContainer');
-    if (!heatContainer) {
-      heatContainer = document.createElement('div');
-      heatContainer.id = 'heatPaginationContainer';
-      heatContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
-      document.getElementById('heatTable').parentNode.appendChild(heatContainer);
-    }
-    // Focus pagination container
-    let focusContainer = document.getElementById('focusPaginationContainer');
-    if (!focusContainer) {
-      focusContainer = document.createElement('div');
-      focusContainer.id = 'focusPaginationContainer';
-      focusContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
-      document.getElementById('focusTable').parentNode.appendChild(focusContainer);
-    }
-  }
-
-  function renderHeat(stats) {
-    ensurePaginationContainers();
-    const body = document.querySelector('#heatTable tbody'); body.innerHTML = '';
-    function heatColor(n){ const intensity = Math.min(1, n/5); const r = Math.round(255*intensity); const g = Math.round(124+(1-intensity)*60); const b = Math.round(255*(1-intensity)); return `rgb(${r},${g},${b})`; }
-
-    // Pagination logic
-    const totalItems = stats.length;
-    const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
-    heatPage = Math.min(Math.max(1, heatPage), totalPages);
-    const start = (heatPage - 1) * PAGE_SIZE;
-    const pageItems = stats.slice(start, start + PAGE_SIZE);
-
-    pageItems.forEach(row => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${row.leader}</td>
-                      <td><span class="heat" style="background:${heatColor(row.pending)}">${row.pending}</span></td>
-                      <td><span class="heat" style="background:${heatColor(row.a)}">${row.a}</span></td>
-                      <td><span class="heat" style="background:${heatColor(row.r)}">${row.r}</span></td>`;
-      body.appendChild(tr);
-    });
-
-    // Build pagination controls
-    const pc = document.getElementById('heatPaginationContainer');
-    pc.innerHTML = '';
-    if (totalPages > 1) {
-      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = heatPage===1;
-      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = heatPage===totalPages;
-      const info = document.createElement('div'); info.className='muted'; info.style.marginLeft='8px'; info.textContent = `Page ${heatPage} / ${totalPages}`;
-
-      prev.onclick = () => { heatPage = Math.max(1, heatPage-1); renderHeat(currentFilteredStats); };
-      next.onclick = () => { heatPage = Math.min(totalPages, heatPage+1); renderHeat(currentFilteredStats); };
-
-      pc.appendChild(prev);
-      pc.appendChild(info);
-      pc.appendChild(next);
-    }
-  }
-
-  function renderFocus(stats) {
-    ensurePaginationContainers();
-    const body = document.querySelector('#focusTable tbody'); body.innerHTML = '';
-
-    // Create a dataset: one oldest pending per leader (same as before)
-    const rows = stats.map(row => {
-      const o = row.oldest;
-      return { leader: row.leader, task: o?o.Task:'All clear', days: o?o.DaysSince:'-', status: o?o.Status:'-' };
-    });
-
-    // Pagination
-    const totalItems = rows.length;
-    const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
-    focusPage = Math.min(Math.max(1, focusPage), totalPages);
-    const start = (focusPage - 1) * PAGE_SIZE;
-    const pageItems = rows.slice(start, start + PAGE_SIZE);
-
-    pageItems.forEach(r => {
-      body.innerHTML += `<tr><td>${r.leader}</td><td>${r.task}</td><td>${r.days}</td><td>${r.status}</td></tr>`;
-    });
-
-    // Focus pagination controls
-    const pc = document.getElementById('focusPaginationContainer');
-    pc.innerHTML = '';
-    if (totalPages > 1) {
-      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = focusPage===1;
-      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = focusPage===totalPages;
-      const info = document.createElement('div'); info.className='muted'; info.style.marginLeft='8px'; info.textContent = `Page ${focusPage} / ${totalPages}`;
-
-      prev.onclick = () => { focusPage = Math.max(1, focusPage-1); renderFocus(currentFilteredStats); };
-      next.onclick = () => { focusPage = Math.min(totalPages, focusPage+1); renderFocus(currentFilteredStats); };
-
-      pc.appendChild(prev);
-      pc.appendChild(info);
-      pc.appendChild(next);
-    }
-  }
-
-  // ===== Theme toggle =====
-  document.getElementById('themeToggle').addEventListener('click', () => {
-    document.body.classList.toggle('light');
-    if (statusChart) { statusChart.options.plugins.legend.labels.color = getVar('--text'); statusChart.update(); }
-    if (agingChart) { agingChart.update(); }
   });
-
-  // ===== Upload handling =====
-  const fileInput = document.getElementById('fileInput');
-  const dropZone = document.getElementById('dropZone');
-  const appendMode = document.getElementById('appendMode');
-
-  fileInput.addEventListener('change', async (e) => { if (!e.target.files.length) return; await handleFile(e.target.files[0]); fileInput.value=''; });
-  ;['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = 'rgba(0,212,255,0.08)'; }));
-  ;['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = ''; }));
-  dropZone.addEventListener('drop', async (e) => { const f = e.dataTransfer.files[0]; if (f) await handleFile(f); });
-
-  async function handleFile(file){
-    const data = await file.arrayBuffer();
-    const wb = XLSX.read(data, { type:'array' });
-    const recs = sheetToRecords(wb);
-    let merged = recs;
-    if (appendMode.checked){ merged = [...currentRecords, ...recs]; }
-    currentRecords = merged;
-    renderAll(currentRecords);
-
-    // reset pages & filter so user sees initial pages of new data
-    heatPage = 1; focusPage = 1;
-    const filterEl = document.getElementById('leaderFilter');
-    if (filterEl) filterEl.value = 'All Leaders';
-  }
-
-  // ===== Local persistence =====
-  const saveBtn = document.getElementById('saveLocal');
-  const clearBtn = document.getElementById('clearLocal');
-  saveBtn.addEventListener('click', () => { try { localStorage.setItem('LAD_RECORDS', JSON.stringify(currentRecords)); saveBtn.textContent = 'Saved ✓'; setTimeout(()=>saveBtn.textContent='Save to this browser', 1500); } catch(e){ alert('Save failed: ' + e.message); } });
-  clearBtn.addEventListener('click', () => { localStorage.removeItem('LAD_RECORDS'); alert('Saved data cleared. Reload will use embedded data.'); });
-
-  // ===== Bootstrapping =====
-  let currentRecords = [];
-  try {
-    const fromLocal = localStorage.getItem('LAD_RECORDS');
-    currentRecords = fromLocal ? JSON.parse(fromLocal) : EMBEDDED_DATA;
-  } catch(e){ currentRecords = EMBEDDED_DATA; }
-  renderAll(currentRecords);
-</script>
+}
