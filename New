@@ -199,14 +199,28 @@
     </section>
 
     <!-- Focus: Oldest pending per leader -->
-    <section class="card col-12">
-      <div class="section-title">Focus Board</div>
-      <div class="muted">One nudge per leader: oldest pending task to clear next</div>
-      <table class="table" id="focusTable">
-        <thead><tr><th>Leader(s)</th><th>Task</th><th>Days Since</th><th>Status</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
+<!-- Focus: All tasks per leader (with Task dropdown filter) -->
+<section class="card col-12">
+  <div class="section-title">Focus Board</div>
+
+  <!-- TASK DROPDOWN (local to Focus Board) -->
+  <div style="display:flex; gap:8px; align-items:center; margin:6px 0 8px;">
+    <select id="focusTaskSelect" style="flex:1; padding:8px; border-radius:6px; border:1px solid var(--card); background:transparent; color:var(--text);">
+      <option value="">-- Show all tasks --</option>
+    </select>
+    <button id="focusTaskSelectClear" class="btn" type="button" title="Clear task filter" style="padding:8px 10px;">Clear</button>
+  </div>
+
+  <div class="muted">Showing every task row mentioning the person(s). Use the Leader filter at the top to limit leaders.</div>
+  <table class="table" id="focusTable">
+    <thead><tr><th>Leader(s)</th><th>Task</th><th>Days Since</th><th>Status</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- pagination container if used by your file (keeps compatibility) -->
+  <div id="focusPaginationContainer" style="margin-top:8px;"></div>
+</section>
+
   </main>
 
   <footer>
@@ -237,6 +251,123 @@
     ring.style.setProperty('--deg', deg + 'deg');
     const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
   }
+// ---- ADD: canonicalizeTaskText (normalizes task strings for robust matching) ----
+function canonicalizeTaskText(s) {
+  if (s == null) return '';
+  // convert to string, normalize Unicode, collapse whitespace, remove common punctuation, lower-case
+  try {
+    // normalize, remove non-breaking spaces, trim
+    let t = String(s).normalize('NFKD').replace(/\u00A0/g, ' ').trim();
+    // replace any sequence of whitespace (space/tab/newline) with a single space
+    t = t.replace(/\s+/g, ' ');
+    // remove punctuation characters that often obstruct substring matching, but keep basic alphanum and space
+    // keep hyphens and slashes because some tasks use them meaningfully; remove other punctuation
+    t = t.replace(/[“”"‘’'<>:;,\(\)\[\]\{\}\?\!\@\#\$\%\^\&\*~`+=|]+/g, '');
+    // collapse multiple spaces again
+    t = t.replace(/\s+/g, ' ').trim();
+    return t.toLowerCase();
+  } catch (e) {
+    return String(s || '').toLowerCase();
+  }
+}
+
+// ---- helper: return current filtered stats if non-empty, else full METRICS.leaderStats ----
+function getActiveStatsFallback() {
+  try {
+    // If currentFilteredStats exists and is a non-empty array, use it
+    if (window.currentFilteredStats && Array.isArray(window.currentFilteredStats) && window.currentFilteredStats.length > 0) {
+      return window.currentFilteredStats;
+    }
+    // otherwise fall back to full METRICS.leaderStats if available
+    if (window.METRICS && Array.isArray(window.METRICS.leaderStats) && window.METRICS.leaderStats.length > 0) {
+      return window.METRICS.leaderStats;
+    }
+    // nothing available
+    return [];
+  } catch (e) {
+    // defensive fallback
+    return (window.METRICS && Array.isArray(window.METRICS.leaderStats)) ? window.METRICS.leaderStats : [];
+  }
+}
+
+
+  // ---- Focus Board Task dropdown state & helpers ----
+let FOCUS_TASK_SELECTED = '';    // stores selected task text (substring filter)
+if (!window._focusTaskDropdownInit) window._focusTaskDropdownInit = false;
+
+/**
+ * Build a unique sorted list of task texts from METRICS (leaderStats).
+ * Returns array of strings.
+ */
+function getUniqueTaskTextsFromMetrics(metrics) {
+  // returns array of { label: originalTaskText, value: canonicalizedTaskText }
+  if (!metrics || !metrics.leaderStats) return [];
+  const map = new Map(); // canonical -> original (first seen)
+  metrics.leaderStats.forEach(ls => {
+    const arr = (ls.allList && ls.allList.length) ? ls.allList : (ls.list || []);
+    arr.forEach(r => {
+      const raw = String(r.Task || r.task || '').trim();
+      if (!raw) return;
+      const key = canonicalizeTaskText(raw);
+      if (!map.has(key)) map.set(key, raw);
+    });
+  });
+  // convert to sorted array by label (original text), but keep canonical value for matching
+  const items = Array.from(map.entries()).map(([value,label]) => ({ label, value }));
+  items.sort((a,b) => a.label.localeCompare(b.label));
+  return items;
+}
+
+
+function populateFocusTaskDropdown(metrics) {
+  const sel = document.getElementById('focusTaskSelect');
+  if (!sel) return;
+  const prev = sel.value || '';
+  // reset keeping the first placeholder
+  sel.innerHTML = '<option value="">-- Show all tasks --</option>';
+  const items = getUniqueTaskTextsFromMetrics(metrics); // array of {label,value}
+  items.forEach(it => {
+    const opt = document.createElement('option');
+    opt.value = it.value;       // canonical value for reliable matching
+    opt.textContent = it.label.length > 80 ? (it.label.slice(0,77) + '...') : it.label;
+    sel.appendChild(opt);
+  });
+  // restore previous selection if canonical matches
+  if (prev) {
+    const found = Array.from(sel.options).some(o => o.value === prev);
+    if (found) sel.value = prev;
+    else sel.value = '';
+  }
+}
+
+
+/**
+ * Initialize task select bindings. Idempotent.
+ */
+function initFocusTaskSelectBindings() {
+  if (window._focusTaskDropdownInit) return;
+  window._focusTaskDropdownInit = true;
+  const sel = document.getElementById('focusTaskSelect');
+  const clearBtn = document.getElementById('focusTaskSelectClear');
+  if (!sel) return;
+
+sel.addEventListener('change', function(e) {
+  // e.target.value is the canonicalized value we set in populateFocusTaskDropdown
+  FOCUS_TASK_SELECTED = (e.target.value || '').toString().trim();
+    const stats = getActiveStatsFallback();
+  try { renderFocus(stats); } catch(err){ console.error('renderFocus error:', err); }
+});
+
+
+  clearBtn && clearBtn.addEventListener('click', function() {
+    sel.value = '';
+    FOCUS_TASK_SELECTED = '';
+        const stats = getActiveStatsFallback();
+    renderFocus(stats);
+    sel.focus();
+  });
+}
+
 
   // ===== Parsing Excel (SheetJS) =====
 // ---- NEW helpers for assignee splitting & name normalization ----
@@ -574,6 +705,10 @@ function renderStackedBar(stats) {
 
   function renderAll(records) {
     const METRICS = computeMetrics(records);
+        // make metrics available to other handlers (dropdowns / fallbacks)
+    window.METRICS = METRICS;
+    window.metrics = METRICS; // alias used in some older code paths
+
 
       // After computeMetrics(...) call - optional safety
 if (METRICS && METRICS.leaderStats) {
@@ -608,6 +743,10 @@ renderStackedBar(list);
 
     // Initialize currentFilteredStats (All)
     currentFilteredStats = METRICS.leaderStats;
+    // populate and init task dropdown for Focus Board (safe / idempotent)
+populateFocusTaskDropdown(METRICS);
+initFocusTaskSelectBindings(); // wires change/clear handlers once
+
 
     // KPI
     const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
@@ -828,29 +967,50 @@ function renderHeat(stats) {
 
 
   
-// ---- REPLACE renderFocus(...) WITH THIS ----
+// ---- renderFocus(stats) — dropdown-aware ----
 function renderFocus(stats) {
   ensurePaginationContainers && ensurePaginationContainers();
-  const body = document.querySelector('#focusTable tbody');
-  if (!body) return;
-  body.innerHTML = '';
+  const tbody = document.querySelector('#focusTable tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
 
-  // Flatten all tasks for all leaders (prefer allList, fallback to list)
+  // Build flattened rows from stats (prefer allList, fallback to list)
   const flat = [];
   stats.forEach(leader => {
     const tasks = (leader.allList && leader.allList.length) ? leader.allList : (leader.list || []);
     tasks.forEach(t => {
       flat.push({
         leader: leader.leader,
-        task: t.Task || t.task || '—',
+        task: (t.Task || t.task || '').toString(),
         days: (t.DaysSince != null ? t.DaysSince : (t.days != null ? t.days : '-')),
-        status: t.Status || t.status || '-',
+        status: (t.Status || t.status || '').toString(),
         _rowIndex: t._rowIndex != null ? t._rowIndex : null
       });
     });
   });
 
-  // Sort: Red (Overdue) first by days desc, then Amber, then Green
+  // Apply the Focus Task dropdown selection (if any) using canonical matching
+  const sel = (FOCUS_TASK_SELECTED || '').toString().trim(); // already canonical if selected from dropdown
+  let filtered;
+  if (sel) {
+    // Only compute canonical task once per flat item for perf
+    filtered = flat.filter(item => {
+      const canon = canonicalizeTaskText(item.task || '');
+      return canon.includes(sel);
+    });
+    // debug: if selection yields no results, log a short diagnostic (helpful while testing)
+    if (filtered.length === 0) {
+      try {
+        const sample = flat.slice(0, 12).map(x => canonicalizeTaskText(x.task || ''));
+        console.warn('Focus task filter selected but no matches. selected=', sel, 'sample canonical tasks=', sample);
+      } catch(e) {}
+    }
+  } else {
+    filtered = flat;
+  }
+
+
+  // sort: R then A then G; within same status largest days first
   const statusRank = (s) => {
     s = String(s || '').trim().toUpperCase();
     if (s.startsWith('R')) return 0;
@@ -858,7 +1018,7 @@ function renderFocus(stats) {
     if (s.startsWith('G')) return 2;
     return 3;
   };
-  flat.sort((a,b) => {
+  filtered.sort((a,b) => {
     const sa = statusRank(a.status), sb = statusRank(b.status);
     if (sa !== sb) return sa - sb;
     const da = (a.days != null && a.days !== '-') ? Number(a.days) : -Infinity;
@@ -868,39 +1028,70 @@ function renderFocus(stats) {
     return (a.task || '').localeCompare(b.task || '');
   });
 
-  const totalItems = flat.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE || 20));
+  // pagination
+  const pageSize = (typeof PAGE_SIZE === 'number' && PAGE_SIZE > 0) ? PAGE_SIZE : 10;
+  const totalItems = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   focusPage = Math.min(Math.max(1, focusPage || 1), totalPages);
-  const start = (focusPage - 1) * (PAGE_SIZE || 20);
-  const pageItems = flat.slice(start, start + (PAGE_SIZE || 20));
+  const start = (focusPage - 1) * pageSize;
+  const pageItems = filtered.slice(start, start + pageSize);
 
-  // Helper to escape HTML
-  const escapeHtml = (str) => { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  const escapeHtml = (s) => { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
 
   pageItems.forEach(r => {
-    body.innerHTML += `
-      <tr>
-        <td>${escapeHtml(r.leader)}</td>
-        <td>${escapeHtml(r.task)}</td>
-        <td>${r.days}</td>
-        <td>${escapeHtml(r.status)}</td>
-      </tr>`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(r.leader)}</td>
+                    <td>${escapeHtml(r.task)}</td>
+                    <td>${r.days}</td>
+                    <td>${escapeHtml(r.status)}</td>`;
+    tbody.appendChild(tr);
   });
 
-  // Pagination UI (existing container id expected)
-  const pc = document.getElementById('focusPaginationContainer');
+  // pagination controls
+   const pc = document.getElementById('focusPaginationContainer');
   if (pc) {
+    // clear container and set horizontal layout
     pc.innerHTML = '';
+    // Use flex layout so controls appear side-by-side
+    pc.style.display = 'flex';
+    pc.style.flexWrap = 'nowrap';
+    pc.style.alignItems = 'center';
+    pc.style.gap = '8px';
+    pc.style.marginTop = '8px';
+
     if (totalPages > 1) {
-      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = focusPage===1;
-      const info = document.createElement('div'); info.className='muted'; info.style.margin='0 8px'; info.textContent = `Page ${focusPage} / ${totalPages}`;
-      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = focusPage===totalPages;
-      prev.onclick = () => { focusPage = Math.max(1, focusPage-1); renderFocus(stats); };
-      next.onclick = () => { focusPage = Math.min(totalPages, focusPage+1); renderFocus(stats); };
-      pc.appendChild(prev); pc.appendChild(info); pc.appendChild(next);
+      const prev = document.createElement('button');
+      prev.className = 'btn';
+      prev.textContent = '‹ Prev';
+      prev.disabled = focusPage === 1;
+      prev.style.display = 'inline-block';
+
+      const info = document.createElement('div');
+      info.className = 'muted';
+      info.textContent = `Page ${focusPage} / ${totalPages}`;
+      // make info visually inline and slightly muted
+      info.style.display = 'inline-block';
+      info.style.padding = '4px 6px';
+      info.style.borderRadius = '6px';
+      info.style.fontSize = '13px';
+
+      const next = document.createElement('button');
+      next.className = 'btn';
+      next.textContent = 'Next ›';
+      next.disabled = focusPage === totalPages;
+      next.style.display = 'inline-block';
+
+      prev.onclick = () => { focusPage = Math.max(1, focusPage - 1); renderFocus(stats); };
+      next.onclick = () => { focusPage = Math.min(totalPages, focusPage + 1); renderFocus(stats); };
+
+      // append in order: prev, info, next
+      pc.appendChild(prev);
+      pc.appendChild(info);
+      pc.appendChild(next);
     }
   }
 }
+
 
 
 
