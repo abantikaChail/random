@@ -339,6 +339,13 @@ function renderStackedBar(stats) {
     options: {
       responsive: true,
       // DO NOT force maintainAspectRatio:false here — keep Chart.js default behavior
+	datasets: {
+		bar: {
+		barPercentage: 0.6,
+		categoryPercentage: 0.5,
+		maxBarThickness: 48
+		}
+},
       scales: {
         x: {
           stacked: true,
