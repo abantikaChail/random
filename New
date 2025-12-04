@@ -1,164 +1,955 @@
-// helper: split "AssignedTo" into an array of individual names
-function splitAssigneesField(val) {
-  if (!val && val !== 0) return ['Unassigned'];
-  // convert to string and normalize separators: commas, semicolons, slashes, pipes, ampersand, ' and '
-  const s = String(val).trim();
-  if (!s) return ['Unassigned'];
 
-  // split on common separators and the word ' and ' (case-insensitive)
-  const parts = s.split(/[,;\/\|&]|\s+and\s+/i)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leader Accountability Dashboard — Upload Enabled</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0f1a; --bg-alt: #0f1424; --card: rgba(255,255,255,0.06);
+      --glass: rgba(255,255,255,0.08); --text: #e6e9f0; --muted: #9aa3b2;
+      --accent: #7c5cff; --accent-2: #00d4ff; --success: #35d07f;
+      --warning: #ffb648; --danger: #ff5c7a; --ring: #28304a;
+    }
+    .light {
+      --bg: #f6f7fb; --bg-alt: #ffffff; --card: rgba(0,0,0,0.04);
+      --glass: rgba(0,0,0,0.06); --text: #111827; --muted: #6b7280;
+      --accent: #6c5ce7; --accent-2: #0ea5e9; --success: #14b8a6; --warning: #f59e0b; --danger: #ef4444; --ring: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background: linear-gradient(140deg, var(--bg), var(--bg-alt)); color: var(--text); font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Arial; }
+    header { position: sticky; top:0; z-index:50; backdrop-filter: blur(10px); background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0)); border-bottom:1px solid var(--card); }
+    .nav { display:flex; align-items:center; justify-content:space-between; padding:14px 24px; }
+    .brand { display:flex; gap:12px; align-items:center; }
+    .logo { width:36px; height:36px; border-radius:10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow:0 6px 20px rgba(124,92,255,0.4); }
+    .title { font-family:'Orbitron',sans-serif; letter-spacing:0.8px; font-weight:700; }
+    .actions { display:flex; gap:10px; align-items:center; }
+    .btn { padding:10px 14px; border-radius:10px; border:1px solid var(--card); background: var(--glass); color:var(--text); cursor:pointer; }
+    .btn:hover { filter:brightness(1.1); }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; padding:24px; }
+    .card { background: var(--glass); border:1px solid var(--card); border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,0.2); }
+    .col-3 { grid-column: span 3; } .col-4 { grid-column: span 4; } .col-6 { grid-column: span 6; } .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
+    .kpi { display:flex; align-items:center; gap:16px; }
+    .ring { width:90px; height:90px; border-radius:50%; display:grid; place-items:center; background: conic-gradient(var(--accent) 0deg, var(--accent) var(--deg), var(--ring) var(--deg)); position: relative; }
+    .ring::before { content:''; position:absolute; inset:8px; background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2), transparent); border-radius:50%; }
+    .ring .inner { width:68px; height:68px; border-radius:50%; background: var(--bg-alt); display:grid; place-items:center; font-weight:700; }
+    .kpi .meta { display:flex; flex-direction:column; gap:6px; } .kpi .meta .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.8px; } .kpi .meta .value { font-size:22px; font-weight:800; }
+    .leaderboard { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+    .leader-card { position:relative; padding:16px; border-radius:16px; background: linear-gradient(180deg, var(--glass), rgba(255,255,255,0.02)); border: 1px solid var(--card); }
+    .leader-header { display:flex; align-items:center; justify-content:space-between; }
+    .avatar { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; font-weight:700; background: linear-gradient(135deg, #1f2937, #374151); color:#fff; }
+    .bar { height:10px; background: var(--ring); border-radius:999px; overflow:hidden; margin-top:10px; } .bar>span { display:block; height:100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; } .chip { font-size:12px; padding:6px 8px; border-radius:999px; background: var(--card); border:1px solid var(--glass); }
+    .section-title { font-weight:800; letter-spacing:0.5px; margin-bottom:8px; } .muted { color:var(--muted); }
+    .table { width:100%; border-collapse:collapse; margin-top:10px; } .table th,.table td { padding:10px; border-bottom:1px solid var(--card); text-align:left; }
+    .heat { border-radius:8px; padding:4px 8px; display:inline-block; color:#fff; }
+    .uploader { display:flex; gap:12px; align-items:center; }
+    .drop { border:1px dashed var(--accent-2); border-radius:14px; padding:12px 14px; color:var(--muted); }
+    footer { padding:24px; color:var(--muted); font-size:12px; }
+    @media (max-width:960px){ .col-6{grid-column:span 12;} .col-4{grid-column:span 12;} .col-3{grid-column:span 6;} }
+
+/* Grid for the leaderboard cards */
+.leaderboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+/* Responsiveness */
+@media (max-width: 1024px) {
+  .leaderboard { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .leaderboard { grid-template-columns: 1fr; }
+}
+
+/* Collapsed state: show only top 3 cards */
+.leaderboard.lb-collapsed .leader-card:nth-child(n+4) {
+  display: none;
+}
+
+/* Toggle button styling (outside the grid so it won't take a grid cell) */
+.lb-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--surface, #fff);
+  color: var(--text, #111827);
+  background: var(--glass);
+  margin-top: 10px;
+}
+
+.lb-toggle-btn:hover { background: var(--hover, #f3f4f6); }
+
+.lb-chevron {
+  display: inline-block;
+  transition: transform 180ms ease;
+}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <div class="title">Leader Accountability Dashboard</div>
+          <div class="muted" style="font-size:12px">Upload Excel to refresh data • Dark/Light theme • Leader filter</div>
+        </div>
+      </div>
+      <div class="actions">
+        <select id="leaderFilter" class="btn"></select>
+        <button id="themeToggle" class="btn">Toggle Theme</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- Upload Panel -->
+    <section class="card col-12">
+      <div class="section-title">Update Data</div>
+      <div class="uploader">
+        <label class="btn" for="fileInput">Upload .xlsx</label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" />
+        <div class="btn" id="saveLocal">Save to this browser</div>
+        <div class="btn" id="clearLocal">Clear saved data</div>
+        <label style="display:flex; align-items:center; gap:8px;" class="muted">
+          <input type="checkbox" id="appendMode" /> Append mode
+        </label>
+      </div>
+      <div id="dropZone" class="drop" style="margin-top:10px">Drag & drop Excel here or click “Upload .xlsx”</div>
+      <div class="muted" style="margin-top:6px">Template required columns: Task, Assigned to, Assigned date, Days since task assignment, Status (R/A/G). Optional: Medium, Description.</div>
+    </section>
+
+    <!-- KPI Cards -->
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringCompletion"><div class="inner" id="ringCompletionInner">0%</div></div>
+        <div class="meta"><div class="label">Overall Completion</div><div class="value" id="overallCompletion">0%</div><div class="muted" id="topLeaderText">Top: -</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringTasks"><div class="inner" id="ringTasksInner">0</div></div>
+        <div class="meta"><div class="label">Total Tasks</div><div class="value" id="totalTasks">0</div><div class="muted" id="pendingTasks">Pending: 0</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringOverdue"><div class="inner" id="ringOverdueInner">0</div></div>
+        <div class="meta"><div class="label">Overdue (R)</div><div class="value" id="overdueCount">0</div><div class="muted" id="amberCount">Amber (A): 0</div></div>
+      </div>
+    </section>
+    <section class="card col-3">
+      <div class="kpi">
+        <div class="ring" id="ringAging"><div class="inner" id="ringAgingInner">0d</div></div>
+        <div class="meta"><div class="label">Avg Aging (Pending)</div><div class="value" id="avgAging">0 days</div><div class="muted" id="nudge">Nudge: Clear the oldest task</div></div>
+      </div>
+    </section>
+
+    <!-- Leaderboard -->
+    <section class="card col-8">
+      <div class="section-title">Leaderboard</div>
+      <div class="muted">Ranked by completion %</div>
+      <div id="leaderboard" class="leaderboard"></div>
+    </section>
+
+    <!-- Status Distribution -->
+    <section class="card col-4">
+      <div class="section-title">Status Distribution</div>
+      <canvas id="statusChart" height="220"></canvas>
+      <div class="chips">
+        <span class="chip" id="chipG">Green (G): 0</span>
+        <span class="chip" id="chipA">Amber (A): 0</span>
+        <span class="chip" id="chipR">Red (R): 0</span>
+      </div>
+    </section>
+
+<section class-"card col-12" style="grid-column: span 12; margin-top:12px;">
+	<div class="section-title">RAG Distribution</div>
+	<div class="muted">Stacked bar: counts of Red, Amber, Green. Hover for details.</div>
+	<canvas id="stackedBarChart" height="90" style="margin-top:10px;"></canvas>
+</section>
+
+    <!-- Aging Buckets -->
+    <section class="card col-6">
+      <div class="section-title">Aging Buckets (Ongoing tasks only)</div>
+      <canvas id="agingChart" height="240"></canvas>
+    </section>
+
+    <!-- Heatmap -->
+    <section class="card col-6">
+      <div class="section-title">Heatmap for each Assignee</div>
+      <table class="table" id="heatTable">
+        <thead><tr><th>Leader(s)</th><th>Completed (G)</th><th>Amber (A)</th><th>Overdue (R)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- Focus: Oldest pending per leader -->
+    <section class="card col-12">
+      <div class="section-title">Focus Board</div>
+      <div class="muted">One nudge per leader: oldest pending task to clear next</div>
+      <table class="table" id="focusTable">
+        <thead><tr><th>Leader(s)</th><th>Task</th><th>Days Since</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <div>Assumptions: Status codes R/A/G map to Overdue / In-progress / Completed respectively. Completion rate = G / Total. Data persists in browser if you click “Save to this browser”.</div>
+  </footer>
+
+<script>
+  // ===== Default embedded data from initial Excel (can be replaced by upload) =====
+  const EMBEDDED_DATA = [];
+
+  // ===== Utilities =====
+  function groupBy(arr, key) {
+    return arr.reduce((acc, item) => { const k = (item[key] || '').trim(); acc[k] = acc[k] || []; acc[k].push(item); return acc; }, {});
+  }
+  function normStatus(s) {
+    s = (s || '').toString().trim().toUpperCase();
+    if (!s) return 'A';
+    const ch = s[0];
+    if (ch === 'G') return 'G';
+    if (ch === 'A') return 'A';
+    if (ch === 'R') return 'R';
+    return 'A';
+  }
+  function toInt(n) { n = parseInt(n, 10); return isNaN(n) ? 0 : n; }
+  function setRing(id, percent, label) {
+    const deg = Math.min(360, Math.round((percent/100)*360));
+    const ring = document.getElementById(id);
+    ring.style.setProperty('--deg', deg + 'deg');
+    const inner = ring.querySelector('.inner'); if (inner) inner.textContent = label;
+  }
+
+  // ===== Parsing Excel (SheetJS) =====
+// ---- NEW helpers for assignee splitting & name normalization ----
+function splitAssignees(raw) {
+  if (!raw) return [];
+
+  // Normalize common delimiters to comma
+  let s = String(raw || '')
+    .replace(/\r\n|\r|\n/g, ',')     // newlines -> comma
+    .replace(/;/g, ',')             // semicolon -> comma
+    .replace(/[\\\/\|]/g, ',')      // backslash / forward slash / pipe -> comma
+    .replace(/\s*&\s*/g, ',')       // ampersand -> comma
+    .replace(/\s*\+\s*/g, ',')      // plus -> comma
+    .replace(/•|·|–|—/g, ',')       // bullets & dashes -> comma
+    .replace(/\b(team|group|team\sof|assigned to|owners?)\s*[:\-]\s*/ig, '') // remove labels
+    .replace(/\(.*?on rotation.*?\)/ig, '')
+    .replace(/\(.*?backup.*?\)/ig, '')
+    .replace(/\(assigned.*?\)/ig, '')
+    .replace(/,+/g, ',').trim();
+
+  // split and cleanup tokens
+  const parts = s.split(',')
     .map(p => p.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(p => p.replace(/^\:|^\-+|^\.+/,'').trim())
+    .map(p => p.replace(/^[\(\[]+|[\)\]]+$/g, '').trim())
+    .map(p => p.replace(/\s*\(.*\)$/,'').trim());
 
-  // If the whole string looks like "person3,person1" (no spaces), the split already handles it.
-  // As a final fallback, return the original string as one item.
-  return parts.length ? parts : [s];
+  // Split "A and B" inside tokens
+  const final = [];
+  parts.forEach(tok => {
+    if (!tok) return;
+    if (/\band\b/i.test(tok) && tok.split(/\band\b/i).length > 1) {
+      tok.split(/\band\b/i).map(x => x.trim()).filter(Boolean).forEach(x => final.push(x));
+    } else {
+      final.push(tok);
+    }
+  });
+
+  // Filter obviously non-person tokens
+  const personLike = final.filter(t => t && t.match(/[A-Za-z]/));
+  const cleaned = personLike.map(t => t).filter(Boolean);
+
+  // low-volume debug log (appears rarely)
+  try {
+    if (window && console && Math.random() < 0.02) {
+      console.info('splitAssignees sample:', raw, '=>', cleaned.slice(0,8));
+    }
+  } catch(e){}
+
+  return cleaned;
 }
 
-// helper: normalize a person name to consistent form (trim + collapse spaces).
-// You can opt to title-case names by uncommenting the title-case lines if desired.
-function normalizePersonName(name) {
-  if (!name && name !== 0) return 'Unassigned';
-  let s = String(name).trim().replace(/\s+/g, ' ');
-  // Optional: title-case to ensure 'john DOE' -> 'John Doe'
-  // s = s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-  return s;
+
+// ---- ADD normalizeNameToken(...) ----
+function normalizeNameToken(token, allSeenNames = []) {
+  let t = (token || '').replace(/^[\(\[]+|[\)\]]+$/g, '').trim().replace(/\s+/g, ' ');
+  if (!t) return t;
+
+  // try initials match e.g. "A K" -> "Anita Kapoor" if present in allSeenNames
+  const initials = t.match(/\b[A-Z]\b/gi) || (t.replace(/[^A-Za-z]/g,'').length <= 3 ? t.replace(/[^A-Za-z]/g,'').toUpperCase().split('') : null);
+
+  if (initials && initials.length >= 1 && allSeenNames.length) {
+    const cand = allSeenNames.find(name => {
+      const nameInitials = name.split(/\s+/).map(n => n[0].toUpperCase()).join('');
+      const tokenInitials = initials.join('');
+      return nameInitials.startsWith(tokenInitials) || nameInitials === tokenInitials;
+    });
+    if (cand) return cand;
+  }
+
+  // prefix match for short tokens
+  if (t.length <= 6 && allSeenNames.length) {
+    const pref = allSeenNames.find(n => n.toLowerCase().startsWith(t.toLowerCase()));
+    if (pref) return pref;
+  }
+
+  // Title-case and return
+  return t.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// Replace sheetToRecords with this expanded version: it will create one output record per assignee
+
+// ---- Replace normalizeColumns to keep raw AssignedTo but still coerce fields ----
+function normalizeColumns(obj) {
+  const out = {};
+  const map = {
+    'sno': 'SNo','task': 'Task','assignedto': 'AssignedToRaw','medium': 'Medium','assigneddate': 'AssignedDate','dayssincetaskassignment': 'DaysSince','dayssince': 'DaysSince','status': 'Status','description': 'Description'
+  };
+  Object.keys(obj).forEach(k => {
+    const nk = k.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const key = map[nk] || k;
+    out[key] = obj[k];
+  });
+  // Coerce types / defaults
+  out.Task = (out.Task || '').toString().trim();
+  out.AssignedToRaw = (out.AssignedToRaw || '').toString().trim();
+  out.Medium = (out.Medium || '').toString().trim();
+  out.Status = normStatus(out.Status);
+  out.Description = (out.Description || '').toString().trim();
+  out.DaysSince = toInt(out.DaysSince);
+  out.AssignedDate = (out.AssignedDate || '').toString().trim();
+  return out;
+}
+
+// ---- Replace sheetToRecords to use new normalizeColumns ----
 function sheetToRecords(workbook) {
   const firstSheetName = workbook.SheetNames[0];
   const ws = workbook.Sheets[firstSheetName];
   const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
-
-  const out = [];
-  raw.forEach(row => {
-    const norm = normalizeColumns(row); // keep your existing normalization for columns
-    const assignees = splitAssigneesField(norm.AssignedTo);
-
-    assignees.forEach(a => {
-      const single = Object.assign({}, norm);
-      single.AssignedTo = normalizePersonName(a);
-      out.push(single);
-    });
-  });
-
-  // Filter out totally empty rows (optional)
-  const records = out.filter(r => (r.Task && r.Task.toString().trim()) || (r.AssignedTo && r.AssignedTo.toString().trim() !== ''));
+  // normalize columns
+  const records = raw.map(normalizeColumns).filter(r => r.Task || r.AssignedToRaw);
   return records;
 }
 
+// ---- REPLACE computeMetrics(...) WITH THIS ----
+function computeMetrics(records) {
+  const annotated = records.map((r, idx) => Object.assign({}, r, { _rowIndex: idx }));
 
+  const originalTasks = annotated.map(r => ({
+    Task: r.Task || '',
+    AssignedToRaw: (r.AssignedToRaw || '').trim() || 'Unassigned',
+    Medium: r.Medium || '',
+    AssignedDate: r.AssignedDate || '',
+    DaysSince: toInt(r.DaysSince),
+    Status: normStatus(r.Status || ''),
+    _rowIndex: r._rowIndex
+  }));
 
-// simple dedupe by Task + AssignedTo + AssignedDate
-const unique = [];
-const seen = new Set();
-records.forEach(r => {
-  const key = `${(r.Task||'').trim()}||${(r.AssignedTo||'').trim()}||${(r.AssignedDate||'').trim()}`;
-  if (!seen.has(key)) { seen.add(key); unique.push(r); }
-});
-return unique;
+  const total = originalTasks.length;
+  const g = originalTasks.filter(t => t.Status === 'G').length;
+  const a = originalTasks.filter(t => t.Status === 'A').length;
+  const r = originalTasks.filter(t => t.Status === 'R').length;
+  const pending = total - g;
+  const avgAgingPending = (() => {
+    const arr = originalTasks.filter(t => t.Status !== 'G').map(t => t.DaysSince || 0);
+    return arr.length ? Math.round(arr.reduce((x,y)=>x+y,0)/arr.length) : 0;
+  })();
 
-
-
-
-
-// Expand original records into per-person records (one record per assignee)
-// Keeps other fields same; AssignedTo normalized per person.
-function expandPerPersonRecords(originalRecords) {
-  const out = [];
-  originalRecords.forEach(r => {
-    const assigneesRaw = r.AssignedTo || '';
-    // split on commas, semicolons, slashes, pipes, ampersands, and " and "
-    const parts = String(assigneesRaw).split(/[,;\/\|&]|\s+and\s+/i).map(p => p.trim()).filter(Boolean);
-    // if no assignee, keep 'Unassigned'
-    const assignees = parts.length ? parts : ['Unassigned'];
-    assignees.forEach(a => {
-      const copy = Object.assign({}, r);
-      copy.AssignedTo = a.replace(/\s+/g,' ').trim(); // normalize spaces
-      out.push(copy);
+  // gather all tokens seen to help name expansion
+  const allNameTokens = new Set();
+  originalTasks.forEach(t => {
+    splitAssignees(t.AssignedToRaw).forEach(token => {
+      if (token) allNameTokens.add(token.trim());
     });
   });
-  return out;
-}
+  const allSeenNames = Array.from(allNameTokens).map(n => n.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
 
+  const perPerson = {};
 
+  originalTasks.forEach(row => {
+    const assigneesRaw = splitAssignees(row.AssignedToRaw);
+    const assignees = assigneesRaw.map(t => normalizeNameToken(t, allSeenNames)).filter(Boolean);
+    if (assignees.length === 0) assignees.push('Unassigned');
 
+    assignees.forEach(person => {
+      if (!perPerson[person]) {
+        perPerson[person] = {
+          allList: [],
+          occurrences: new Set(),
+          list: [],
+          total:0, g:0, a:0, r:0, ages:[], oldestRow: null
+        };
+      }
+      const P = perPerson[person];
 
+      // always push to allList (full rows for Focus Board)
+      P.allList.push({
+        Task: row.Task,
+        AssignedDate: row.AssignedDate,
+        DaysSince: row.DaysSince,
+        Status: row.Status,
+        Medium: row.Medium,
+        AssignedToRaw: row.AssignedToRaw,
+        _rowIndex: row._rowIndex
+      });
 
-function renderAll(records) {
-  // records === originalRecords (one row per excel row)
-  const METRICS_OVERALL = computeMetrics(records);               // overall totals (unchanged)
-  const perPersonRecords = expandPerPersonRecords(records);     // one row per individual
-  const METRICS = computeMetrics(perPersonRecords);             // used for leaderboard, heat, focus, stacked
+      // safer dedupe key includes row index so distinct rows with blank dates won't collapse
+      const dedupeKey = (row.Task || '') + '||' + (row.AssignedDate || '') + '||' + String(row._rowIndex);
 
-  // ---------------- Leader Filter (populate from per-person leaderStats) ----------------
-  const filterEl = document.getElementById('leaderFilter');
-  filterEl.innerHTML = '';
-  ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => {
-    const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o);
+      if (!P.occurrences.has(dedupeKey)) {
+        P.occurrences.add(dedupeKey);
+        P.list.push({
+          Task: row.Task,
+          AssignedDate: row.AssignedDate,
+          DaysSince: row.DaysSince,
+          Status: row.Status,
+          Medium: row.Medium,
+          AssignedToRaw: row.AssignedToRaw,
+          _rowIndex: row._rowIndex
+        });
+        P.total += 1;
+        if (row.Status === 'G') P.g += 1;
+        else if (row.Status === 'A') P.a += 1;
+        else if (row.Status === 'R') P.r += 1;
+        if (row.Status !== 'G') P.ages.push(row.DaysSince || 0);
+        if (row.Status !== 'G') {
+          if (!P.oldestRow || (row.DaysSince || 0) > (P.oldestRow.DaysSince || 0)) {
+            P.oldestRow = row;
+          }
+        }
+      }
+    });
   });
 
-  // leaderFilter behavior: act on per-person leaderStats
-  filterEl.onchange = (e) => {
-    const val = e.target.value;
-    const list = val === 'All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val);
-    currentFilteredStats = list;
-    heatPage = 1; focusPage = 1;
-    renderLeaderboard(list);
-    renderHeat(list);
-    renderFocus(list);
-    renderStackedBar(list);
+  const leaderStats = Object.keys(perPerson).filter(n => n && n !== 'Unassigned').map(name => {
+    const P = perPerson[name];
+    const avgAge = P.ages.length ? Math.round(P.ages.reduce((x,y)=>x+y,0)/P.ages.length) : 0;
+    const completion = P.total ? Math.round((P.g / P.total) * 100) : 0;
+    return {
+      leader: name,
+      total: P.total,
+      g: P.g,
+      a: P.a,
+      r: P.r,
+      pending: P.total - P.g,
+      avgAge,
+      oldest: P.oldestRow,
+      completion,
+      list: P.list,      // deduped list for counts
+      allList: P.allList // full list for Focus Board
+    };
+  });
+
+  leaderStats.sort((x,y) => (y.completion - x.completion) || (x.r - y.r) || (x.pending - y.pending));
+
+  const buckets = { '0-7':0, '8-14':0, '15-30':0, '31+':0 };
+  originalTasks.filter(t => t.Status !== 'G').forEach(t => {
+    const d = t.DaysSince || 0;
+    if (d <= 7) buckets['0-7']++;
+    else if (d <= 14) buckets['8-14']++;
+    else if (d <= 30) buckets['15-30']++;
+    else buckets['31+']++;
+  });
+
+  return {
+    tasks: originalTasks,
+    total, g, a, r, pending, avgAgingPending,
+    leaderStats,
+    buckets
   };
-
-  // initialize currentFilteredStats to per-person leaderStats
-  currentFilteredStats = METRICS.leaderStats;
-
-  // ---------------- KPIs: use METRICS_OVERALL (original counts) ----------------
-  const overallCompletion = METRICS_OVERALL.total ? Math.round((METRICS_OVERALL.g / METRICS_OVERALL.total) * 100) : 0;
-  document.getElementById('overallCompletion').textContent = overallCompletion + '%';
-  setRing('ringCompletion', overallCompletion, overallCompletion + '%');
-
-  document.getElementById('totalTasks').textContent = METRICS_OVERALL.total;
-  document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS_OVERALL.pending;
-  setRing('ringTasks', METRICS_OVERALL.total ? 100 : 0, METRICS_OVERALL.total);
-
-  document.getElementById('overdueCount').textContent = METRICS_OVERALL.r;
-  document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS_OVERALL.a;
-  setRing('ringOverdue', METRICS_OVERALL.total ? Math.round((METRICS_OVERALL.r / METRICS_OVERALL.total) * 100) : 0, METRICS_OVERALL.r);
-
-  document.getElementById('avgAging').textContent = METRICS_OVERALL.avgAgingPending + ' days';
-  setRing('ringAging', Math.min(100, METRICS_OVERALL.avgAgingPending), METRICS_OVERALL.avgAgingPending + 'd');
-
-  document.getElementById('chipG').textContent = 'Green (G): ' + METRICS_OVERALL.g;
-  document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS_OVERALL.a;
-  document.getElementById('chipR').textContent = 'Red (R): ' + METRICS_OVERALL.r;
-
-  document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
-  document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
-
-  // Render per-person visualizations & lists (leaderboard, heatmap, focus, stacked)
-  renderLeaderboard(METRICS.leaderStats);
-  renderHeat(METRICS.leaderStats);
-  renderFocus(METRICS.leaderStats);
-
-  // Charts: status & aging should reflect overall totals or per-person?
-  // Keep status & aging as before - you may prefer overall totals for these:
-  const statusCtx = document.getElementById('statusChart').getContext('2d');
-  if (statusChart) statusChart.destroy();
-  statusChart = new Chart(statusCtx, {
-    type: 'doughnut',
-    data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS_OVERALL.g, METRICS_OVERALL.a, METRICS_OVERALL.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] },
-    options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
-  });
-
-  const agingCtx = document.getElementById('agingChart').getContext('2d');
-  if (agingChart) agingChart.destroy();
-  agingChart = new Chart(agingCtx, {
-    type: 'bar', data: { labels: Object.keys(METRICS_OVERALL.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS_OVERALL.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
-  });
-
-  // stacked bar: use per-person leaderStats
-  renderStackedBar(METRICS.leaderStats);
 }
 
+
+
+
+// ===== Stacked RAG bar chart (Aging-style sizing & behavior) =====
+let stackedChart = null;
+
+function renderStackedBar(stats) {
+  stats = stats || [];
+  const labels = stats.map(s => s.leader);
+  const greens = stats.map(s => s.g || 0);
+  const ambers = stats.map(s => s.a || 0);
+  const reds   = stats.map(s => s.r || 0);
+
+  const ctxEl = document.getElementById('stackedBarChart');
+  if (!ctxEl) return;
+
+  // Destroy any old instance
+  if (stackedChart) stackedChart.destroy();
+
+  // Colors from CSS variables (keeps the look consistent)
+  const colG = getVar('--success') || '#35d07f';
+  const colA = getVar('--warning') || '#ffb648';
+  const colR = getVar('--danger')  || '#ff5c7a';
+
+  // Create stacked bar with same sizing approach as agingChart
+  const ctx = ctxEl.getContext('2d');
+  stackedChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Green (G)',  data: greens, backgroundColor: colG, stack: 'stack1' },
+        { label: 'Amber (A)',  data: ambers, backgroundColor: colA, stack: 'stack1' },
+        { label: 'Red (R)',    data: reds,   backgroundColor: colR, stack: 'stack1' }
+      ]
+    },
+    options: {
+      responsive: true,
+      // DO NOT force maintainAspectRatio:false here — keep Chart.js default behavior
+	datasets: {
+		bar: {
+		barPercentage: 0.6,
+		categoryPercentage: 0.5,
+		maxBarThickness: 48
+		}
+},
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: getVar('--text') || undefined, maxRotation: 45, minRotation: 0 },
+          grid: { display: false }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: getVar('--text') || undefined, precision: 0 }
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: getVar('--text') || undefined }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return (context.dataset.label || '') + ': ' + (context.raw || 0);
+            },
+            footer: function(items) {
+              if (!items || !items.length) return '';
+              const i = items[0].dataIndex;
+              const total = (greens[i]||0) + (ambers[i]||0) + (reds[i]||0);
+              return 'Total: ' + total;
+            }
+          },
+          bodyColor: getVar('--text') || undefined,
+          titleColor: getVar('--text') || undefined,
+          footerColor: getVar('--muted') || undefined
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
+    }
+  });
+}
+
+
+  // ===== Rendering =====
+  let statusChart = null; let agingChart = null;
+  const PAGE_SIZE = 10;
+  let heatPage = 1;
+  let focusPage = 1;
+  let currentFilteredStats = []; // stores leaderStats after filter
+
+  function renderAll(records) {
+    const METRICS = computeMetrics(records);
+
+      // After computeMetrics(...) call - optional safety
+if (METRICS && METRICS.leaderStats) {
+  METRICS.leaderStats.forEach(ls => {
+    if (ls.allList && ls.allList.length) {
+      ls.list = ls.allList.slice(); // make list contain all entries for UIs that still look at .list
+    }
+  });
+}
+
+    // Ensure Focus Board uses full (non-deduped) lists
+    if (METRICS && METRICS.leaderStats) { METRICS.leaderStats.forEach(ls => { if (ls.allList) ls.list = ls.allList.slice(); }); }
+
+    // Leader Filter
+    const filterEl = document.getElementById('leaderFilter');
+    filterEl.innerHTML = '';
+    ['All Leaders', ...METRICS.leaderStats.map(x => x.leader)].forEach((opt, i) => {
+      const o = document.createElement('option'); o.value = opt; o.textContent = opt; if (i===0) o.selected = true; filterEl.appendChild(o);
+    });
+
+    // When filter changes: update the filtered stats and re-render leaderboard, heat, focus (pages reset to 1)
+    filterEl.onchange = (e) => {
+      const val = e.target.value;
+      const list = val==='All Leaders' ? METRICS.leaderStats : METRICS.leaderStats.filter(x => x.leader === val);
+      currentFilteredStats = list;
+      heatPage = 1; focusPage = 1;
+      renderLeaderboard(list);
+      renderHeat(list);
+      renderFocus(list);
+renderStackedBar(list);
+    };
+
+    // Initialize currentFilteredStats (All)
+    currentFilteredStats = METRICS.leaderStats;
+
+    // KPI
+    const overallCompletion = METRICS.total ? Math.round((METRICS.g / METRICS.total)*100) : 0;
+    document.getElementById('overallCompletion').textContent = overallCompletion + '%'; setRing('ringCompletion', overallCompletion, overallCompletion + '%');
+    document.getElementById('totalTasks').textContent = METRICS.total; document.getElementById('pendingTasks').textContent = 'Pending: ' + METRICS.pending; setRing('ringTasks', METRICS.total?100:0, METRICS.total);
+    document.getElementById('overdueCount').textContent = METRICS.r; document.getElementById('amberCount').textContent = 'Amber (A): ' + METRICS.a; setRing('ringOverdue', METRICS.total?Math.round((METRICS.r/METRICS.total)*100):0, METRICS.r);
+    document.getElementById('avgAging').textContent = METRICS.avgAgingPending + ' days'; setRing('ringAging', Math.min(100, METRICS.avgAgingPending), METRICS.avgAgingPending + 'd');
+    document.getElementById('chipG').textContent = 'Green (G): ' + METRICS.g; document.getElementById('chipA').textContent = 'Amber (A): ' + METRICS.a; document.getElementById('chipR').textContent = 'Red (R): ' + METRICS.r;
+    document.getElementById('topLeaderText').textContent = METRICS.leaderStats.length ? ('Top: ' + METRICS.leaderStats[0].leader + ' • ' + METRICS.leaderStats[0].completion + '%') : 'Top: -';
+    document.getElementById('nudge').textContent = METRICS.pending ? 'Nudge: Clear the oldest task' : 'All clear. Maintain momentum!';
+
+    // Leaderboard
+    renderLeaderboard(METRICS.leaderStats);
+
+    // Heatmap & Focus (initial)
+    renderHeat(METRICS.leaderStats);
+    renderFocus(METRICS.leaderStats);
+
+renderStackedBar(METRICS.leaderStats);
+
+
+
+    // Charts
+    const statusCtx = document.getElementById('statusChart').getContext('2d');
+    if (statusChart) statusChart.destroy();
+    statusChart = new Chart(statusCtx, {
+      type: 'doughnut', data: { labels: ['Green (G)','Amber (A)','Red (R)'], datasets: [{ data: [METRICS.g, METRICS.a, METRICS.r], backgroundColor: [getVar('--success'), getVar('--warning'), getVar('--danger')], borderWidth:0 }] }, options: { plugins: { legend: { position:'bottom', labels: { color: getVar('--text') } } }, cutout:'68%' }
+    });
+    const agingCtx = document.getElementById('agingChart').getContext('2d');
+    if (agingChart) agingChart.destroy();
+    agingChart = new Chart(agingCtx, {
+      type: 'bar', data: { labels: Object.keys(METRICS.buckets), datasets: [{ label:'Pending tasks', data: Object.values(METRICS.buckets), backgroundColor: getVar('--accent'), borderRadius:6 }] }, options: { scales:{ x:{ ticks:{ color:getVar('--muted') } }, y:{ beginAtZero:true, ticks:{ color:getVar('--muted') } } }, plugins:{ legend:{ display:false } } }
+    });
+  }
+
+
+
+  function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name); }
+
+  function medalSVG(rank) {
+    const colors = ['#ffd700','#c0c0c0','#cd7f32']; const c = colors[rank-1] || getVar('--accent');
+    return `<svg class="medal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="${c}" opacity="0.9"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#111">${rank}</text></svg>`;
+  }
+
+  function renderLeaderboard(list) {
+    const lb = document.getElementById('leaderboard');
+    lb.innerHTML = '';
+
+    // Ensure the grid starts collapsed (top 3 visible)
+    lb.classList.add('lb-collapsed');
+
+    // Build all cards as direct children of the grid
+    list.forEach((row, idx) => {
+      const card = document.createElement('div');
+      card.className = 'leader-card';
+
+      const initials = row.leader.split(/\s+/).map(x => x[0]).join('').slice(0,2).toUpperCase();
+      const badge = idx < 3 ? medalSVG(idx + 1) : '';
+      const chip1 = row.completion >= 90 ? '🔥 On Fire' : (row.completion >= 75 ? '⚡ Sprint Ready' : '🎯 Push to 75%');
+      const chip2 = row.r > 0 ? `${row.r} overdue` : 'No overdue';
+      const chip3 = row.avgAge ? `Avg age ${row.avgAge}d` : 'Fresh';
+
+      card.innerHTML = `
+        <div class="leader-header">
+          <div style="display:flex; gap:12px; align-items:center;">
+            <div class="avatar">${initials}</div>
+            <div>
+              <div style="font-weight:700">${row.leader}</div>
+              <div class="muted">${row.g}/${row.total} completed</div>
+            </div>
+          </div>
+          ${badge}
+        </div>
+        <div class="bar"><span style="width:${row.completion}%;"></span></div>
+        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+          <div class="muted">Completion</div>
+          <div style="font-weight:700">${row.completion}%</div>
+        </div>
+        <div class="chips">
+          <span class="chip">${chip1}</span>
+          <span class="chip">${chip2}</span>
+          <span class="chip">${chip3}</span>
+        </div>
+      `;
+      lb.appendChild(card);
+    });
+
+    // Create or reuse a toggle button placed AFTER the grid (so it won't be a grid item)
+    let toggleBtn = document.getElementById('lbToggle');
+const section = lb.closest('section')||lb.parentNode;
+    if (!toggleBtn) {
+      toggleBtn = document.createElement('button');
+      toggleBtn.id = 'lbToggle';
+      toggleBtn.className = 'lb-toggle-btn';
+      toggleBtn.type = 'button';
+      toggleBtn.setAttribute('aria-controls', 'leaderboard');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+	section.insertBefore(toggleBtn,lb);
+      // place the button after the grid within the same section
+    }else if (toggleBtn.parentNode !== section){
+	section.insertBefore(toggleBtn,lb);
+}
+
+    // Hide the button if <=3 items
+    if (list.length <= 3) {
+      toggleBtn.style.display = 'none';
+      return;
+    } else {
+      toggleBtn.style.display = 'inline-flex';
+    }
+
+    // Update button text based on state
+    const setBtnText = () => {
+      const collapsed = lb.classList.contains('lb-collapsed');
+      toggleBtn.innerHTML = `<span class="lb-chevron">▼</span> ${collapsed ? 'Show more (' + (list.length - 3) + ')' : 'Show less'}`;
+      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+      // Flip chevron
+      const chevron = toggleBtn.querySelector('.lb-chevron');
+      chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+    };
+
+    // Initial label
+    setBtnText();
+
+    // Toggle behavior: simply add/remove the class on the grid
+    toggleBtn.onclick = () => {
+      lb.classList.toggle('lb-collapsed');
+      setBtnText();
+    };
+  }
+
+  // Add pagination UI elements if not present (below the tables)
+  function ensurePaginationContainers() {
+    // Heatmap pagination container
+    let heatContainer = document.getElementById('heatPaginationContainer');
+    if (!heatContainer) {
+      heatContainer = document.createElement('div');
+      heatContainer.id = 'heatPaginationContainer';
+      heatContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+      document.getElementById('heatTable').parentNode.appendChild(heatContainer);
+    }
+    // Focus pagination container
+    let focusContainer = document.getElementById('focusPaginationContainer');
+    if (!focusContainer) {
+      focusContainer = document.createElement('div');
+      focusContainer.id = 'focusPaginationContainer';
+      focusContainer.style = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+      document.getElementById('focusTable').parentNode.appendChild(focusContainer);
+    }
+  }
+
+
+function renderHeat(stats) {
+  ensurePaginationContainers();
+  const body = document.querySelector('#heatTable tbody'); 
+  body.innerHTML = '';
+
+  // --- Sorting logic (added) ---
+  const sorted = stats.slice().sort((x, y) => {
+    // Primary: Green (G) descending
+    const gy = (y.g ?? 0), gx = (x.g ?? 0);
+    if (gy !== gx) return gy - gx;
+
+    // Secondary: Amber (A) descending
+    const ay = (y.a ?? 0), ax = (x.a ?? 0);
+    if (ay !== ax) return ay - ax;
+
+    // Tertiary: Overdue (R) descending
+    const ry = (y.r ?? 0), rx = (x.r ?? 0);
+    if (ry !== rx) return ry - rx;
+
+    // Final tie-breaker: Leader name ascending
+    return (x.leader || '').localeCompare(y.leader || '');
+  });
+  // --- End sorting logic ---
+
+  function heatColor(n) { 
+    const intensity = Math.min(1, n/5); 
+    const r = Math.round(255*intensity); 
+    const g = Math.round(124 + (1 - intensity) * 60); 
+    const b = Math.round(255*(1-intensity)); 
+    return `rgb(${r},${g},${b})`; 
+  }
+
+  // Pagination logic (unchanged except using `sorted`)
+  const totalItems = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  heatPage = Math.min(Math.max(1, heatPage), totalPages);
+  const start = (heatPage - 1) * PAGE_SIZE;
+  const pageItems = sorted.slice(start, start + PAGE_SIZE);
+
+  pageItems.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.leader}</td>
+      <td><span class="heat" style="background:${heatColor(row.g)}">${row.g}</span></td>
+      <td><span class="heat" style="background:${heatColor(row.a)}">${row.a}</span></td>
+      <td><span class="heat" style="background:${heatColor(row.r)}">${row.r}</span></td>`;
+    body.appendChild(tr);
+  });
+
+  // Build pagination controls (unchanged)
+  const pc = document.getElementById('heatPaginationContainer');
+  pc.innerHTML = '';
+  if (totalPages > 1) {
+    const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = heatPage===1;
+    const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = heatPage===totalPages;
+    const info = document.createElement('div'); info.className='muted'; info.style.marginLeft='8px'; info.textContent = `Page ${heatPage} / ${totalPages}`;
+
+    prev.onclick = () => { heatPage = Math.max(1, heatPage-1); renderHeat(currentFilteredStats); };
+    next.onclick = () => { heatPage = Math.min(totalPages, heatPage+1); renderHeat(currentFilteredStats); };
+
+    pc.appendChild(prev);
+    pc.appendChild(info);
+    pc.appendChild(next);
+  }
+}
+
+
+  
+// ---- REPLACE renderFocus(...) WITH THIS ----
+function renderFocus(stats) {
+  ensurePaginationContainers && ensurePaginationContainers();
+  const body = document.querySelector('#focusTable tbody');
+  if (!body) return;
+  body.innerHTML = '';
+
+  // Flatten all tasks for all leaders (prefer allList, fallback to list)
+  const flat = [];
+  stats.forEach(leader => {
+    const tasks = (leader.allList && leader.allList.length) ? leader.allList : (leader.list || []);
+    tasks.forEach(t => {
+      flat.push({
+        leader: leader.leader,
+        task: t.Task || t.task || '—',
+        days: (t.DaysSince != null ? t.DaysSince : (t.days != null ? t.days : '-')),
+        status: t.Status || t.status || '-',
+        _rowIndex: t._rowIndex != null ? t._rowIndex : null
+      });
+    });
+  });
+
+  // Sort: Red (Overdue) first by days desc, then Amber, then Green
+  const statusRank = (s) => {
+    s = String(s || '').trim().toUpperCase();
+    if (s.startsWith('R')) return 0;
+    if (s.startsWith('A')) return 1;
+    if (s.startsWith('G')) return 2;
+    return 3;
+  };
+  flat.sort((a,b) => {
+    const sa = statusRank(a.status), sb = statusRank(b.status);
+    if (sa !== sb) return sa - sb;
+    const da = (a.days != null && a.days !== '-') ? Number(a.days) : -Infinity;
+    const db = (b.days != null && b.days !== '-') ? Number(b.days) : -Infinity;
+    if (db !== da) return db - da;
+    if ((a.leader || '') !== (b.leader || '')) return (a.leader || '').localeCompare(b.leader || '');
+    return (a.task || '').localeCompare(b.task || '');
+  });
+
+  const totalItems = flat.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE || 20));
+  focusPage = Math.min(Math.max(1, focusPage || 1), totalPages);
+  const start = (focusPage - 1) * (PAGE_SIZE || 20);
+  const pageItems = flat.slice(start, start + (PAGE_SIZE || 20));
+
+  // Helper to escape HTML
+  const escapeHtml = (str) => { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+
+  pageItems.forEach(r => {
+    body.innerHTML += `
+      <tr>
+        <td>${escapeHtml(r.leader)}</td>
+        <td>${escapeHtml(r.task)}</td>
+        <td>${r.days}</td>
+        <td>${escapeHtml(r.status)}</td>
+      </tr>`;
+  });
+
+  // Pagination UI (existing container id expected)
+  const pc = document.getElementById('focusPaginationContainer');
+  if (pc) {
+    pc.innerHTML = '';
+    if (totalPages > 1) {
+      const prev = document.createElement('button'); prev.className='btn'; prev.textContent='‹ Prev'; prev.disabled = focusPage===1;
+      const info = document.createElement('div'); info.className='muted'; info.style.margin='0 8px'; info.textContent = `Page ${focusPage} / ${totalPages}`;
+      const next = document.createElement('button'); next.className='btn'; next.textContent='Next ›'; next.disabled = focusPage===totalPages;
+      prev.onclick = () => { focusPage = Math.max(1, focusPage-1); renderFocus(stats); };
+      next.onclick = () => { focusPage = Math.min(totalPages, focusPage+1); renderFocus(stats); };
+      pc.appendChild(prev); pc.appendChild(info); pc.appendChild(next);
+    }
+  }
+}
+
+
+
+  // ===== Theme toggle =====
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    document.body.classList.toggle('light');
+    if (statusChart) { statusChart.options.plugins.legend.labels.color = getVar('--text'); statusChart.update(); }
+    if (agingChart) { agingChart.update(); }
+  });
+
+  // ===== Upload handling =====
+  const fileInput = document.getElementById('fileInput');
+  const dropZone = document.getElementById('dropZone');
+  const appendMode = document.getElementById('appendMode');
+
+  fileInput.addEventListener('change', async (e) => { if (!e.target.files.length) return; await handleFile(e.target.files[0]); fileInput.value=''; });
+  ;['dragenter','dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = 'rgba(0,212,255,0.08)'; }));
+  ;['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.style.background = ''; }));
+  dropZone.addEventListener('drop', async (e) => { const f = e.dataTransfer.files[0]; if (f) await handleFile(f); });
+
+  async function handleFile(file){
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type:'array' });
+    const recs = sheetToRecords(wb);
+    let merged = recs;
+    if (appendMode.checked){ merged = [...currentRecords, ...recs]; }
+    currentRecords = merged;
+    renderAll(currentRecords);
+
+    // reset pages & filter so user sees initial pages of new data
+    heatPage = 1; focusPage = 1;
+    const filterEl = document.getElementById('leaderFilter');
+    if (filterEl) filterEl.value = 'All Leaders';
+  }
+
+  // ===== Local persistence =====
+  const saveBtn = document.getElementById('saveLocal');
+  const clearBtn = document.getElementById('clearLocal');
+  saveBtn.addEventListener('click', () => { try { localStorage.setItem('LAD_RECORDS', JSON.stringify(currentRecords)); saveBtn.textContent = 'Saved ✓'; setTimeout(()=>saveBtn.textContent='Save to this browser', 1500); } catch(e){ alert('Save failed: ' + e.message); } });
+  clearBtn.addEventListener('click', () => { localStorage.removeItem('LAD_RECORDS'); alert('Saved data cleared. Reload will use embedded data.'); });
+
+  // ===== Bootstrapping =====
+  let currentRecords = [];
+  try {
+    const fromLocal = localStorage.getItem('LAD_RECORDS');
+    currentRecords = fromLocal ? JSON.parse(fromLocal) : EMBEDDED_DATA;
+  } catch(e){ currentRecords = EMBEDDED_DATA; }
+  renderAll(currentRecords);
+</script>
+
+</body>
+</html>
