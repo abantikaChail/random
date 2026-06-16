@@ -1,74 +1,28 @@
-// ===== Stacked RAG bar chart (Aging-style sizing & behavior) =====
-let stackedChart = null;
+🚀 Automation & Data Engineering
 
-function renderStackedBar(stats) {
-  stats = stats || [];
-  const labels = stats.map(s => s.leader);
-  const greens = stats.map(s => s.g || 0);
-  const ambers = stats.map(s => s.a || 0);
-  const reds   = stats.map(s => s.r || 0);
+Built Python-based automated pipelines for Speed-to-Proficiency, reducing manual effort & improving turnaround time
+Developed self-healing HR data pipeline (Python + Azure) ensuring data reliability & minimal downtime
 
-  const ctxEl = document.getElementById('stackedBarChart');
-  if (!ctxEl) return;
+🧠 AI & Intelligent Solutions
 
-  // Destroy any old instance
-  if (stackedChart) stackedChart.destroy();
+Designed & deployed AI chatbot to assist agents with policies → faster query resolution
+Created AI-driven meeting summarization flow with MoM via adaptive cards → enhanced productivity & tracking
 
-  // Colors from CSS variables (keeps the look consistent)
-  const colG = getVar('--success') || '#35d07f';
-  const colA = getVar('--warning') || '#ffb648';
-  const colR = getVar('--danger')  || '#ff5c7a';
+⚙️ Workflow & Platform Development
 
-  // Create stacked bar with same sizing approach as agingChart
-  const ctx = ctxEl.getContext('2d');
-  stackedChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: 'Green (G)',  data: greens, backgroundColor: colG, stack: 'stack1' },
-        { label: 'Amber (A)',  data: ambers, backgroundColor: colA, stack: 'stack1' },
-        { label: 'Red (R)',    data: reds,   backgroundColor: colR, stack: 'stack1' }
-      ]
-    },
-    options: {
-      responsive: true,
-      // DO NOT force maintainAspectRatio:false here — keep Chart.js default behavior
-      scales: {
-        x: {
-          stacked: true,
-          ticks: { color: getVar('--text') || undefined, maxRotation: 45, minRotation: 0 },
-          grid: { display: false }
-        },
-        y: {
-          stacked: true,
-          beginAtZero: true,
-          ticks: { color: getVar('--text') || undefined, precision: 0 }
-        }
-      },
-      plugins: {
-        legend: {
-          position: 'top',
-          labels: { color: getVar('--text') || undefined }
-        },
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              return (context.dataset.label || '') + ': ' + (context.raw || 0);
-            },
-            footer: function(items) {
-              if (!items || !items.length) return '';
-              const i = items[0].dataIndex;
-              const total = (greens[i]||0) + (ambers[i]||0) + (reds[i]||0);
-              return 'Total: ' + total;
-            }
-          },
-          bodyColor: getVar('--text') || undefined,
-          titleColor: getVar('--text') || undefined,
-          footerColor: getVar('--muted') || undefined
-        }
-      },
-      interaction: { mode: 'index', intersect: false }
-    }
-  });
-}
+Designed end-to-end web application architecture for licensing workflow
+Built self-submission platform for SPOCs & Leaders → streamlined training governance
+Automated task status tracking & leader accountability dashboard → improved execution visibility
+
+📊 Visualization & Experience Design
+
+Developed interactive dashboards & visualization pages → better insights & decision-making
+Defined UI design framework (Playstore V3) ensuring consistent and scalable UX
+
+
+💡 Business Impact (Highlight Strip / Footer)
+
+⏱️ Increased efficiency through automation & reduced manual dependency
+📊 Enabled data-driven decisions with real-time visibility
+🤖 Enhanced agent productivity & support experience via AI
+🔄 Improved process governance, tracking & accountability
